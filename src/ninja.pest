@@ -1,0 +1,11 @@
+// newlines are not whitespace because each line is an independent meaningful thing.
+WHITESPACE = _{ " " | "\t" }
+rule_start = { "rule" }
+rule_name = { ASCII_ALPHANUMERIC+ }
+rule_declaration = @{ rule_start ~ " " ~ rule_name }
+value = @{ (!NEWLINE ~ ANY)+ }
+key = { ASCII_ALPHANUMERIC+ }
+rule_assignment = { key ~ "=" ~ value ~ (NEWLINE | EOI) }
+
+rule = { rule_declaration ~ NEWLINE ~ rule_assignment+ }
+program = { rule+ }
