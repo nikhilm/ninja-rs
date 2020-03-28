@@ -2,6 +2,10 @@
 
 use std::slice::Iter;
 
+/// Reflects a position in the stream. This can be translated to a line+column Position using
+/// Lexer::to_position.
+pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a token/error.
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Position {
     line: usize,
@@ -144,16 +148,16 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
 
     // we could make `pos` an opaque newtype that cannot be constructed from a usize but only be obtained from a token/error
-    fn to_position(&self, pos: usize) -> Option<Position> {
+    fn to_position(&self, pos: Pos) -> Option<Position> {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
         assert!(self.done);
         assert!(self.line_offsets.is_sorted());
-        if pos >= self.data.len() {
+        if pos.0 >= self.data.len() {
             return None;
         }
 
-        match self.line_offsets.binary_search(&pos) {
+        match self.line_offsets.binary_search(&pos.0) {
             Ok(idx) => Some(Position {
                 line: idx + 1,
                 column: 1,
@@ -164,7 +168,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
                 assert!(idx > 0);
                 Some(Position {
                     line: idx,
-                    column: pos - self.line_offsets[idx - 1] + 1,
+                    column: pos.0 - self.line_offsets[idx - 1] + 1,
                 })
             }
         }
@@ -276,6 +280,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
 #[cfg(test)]
 mod test {
     use super::Lexer;
+    use super::Pos;
     use super::Position;
     use super::Token;
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
@@ -371,7 +376,7 @@ pool noodles"#;
         let mut lexer = Lexer::new(input.as_bytes(), None, None);
         for token in &mut lexer {}
         for (pos, expected) in table {
-            assert_eq!(lexer.to_position(*pos), *expected);
+            assert_eq!(lexer.to_position(Pos(*pos)), *expected);
         }
     }
 

@@ -14,3 +14,8 @@ rule foo
     );
     eprintln!("{:?}", results);
 }*/
+
+use ninja_parse::Pos;
+fn main() {
+    // Pos(5); Will fail which is what we want.
+}
