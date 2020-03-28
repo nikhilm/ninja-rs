@@ -143,6 +143,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
         }
     }
 
+    // we could make `pos` an opaque newtype that cannot be constructed from a usize but only be obtained from a token/error
     fn to_position(&self, pos: usize) -> Option<Position> {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
@@ -169,6 +170,16 @@ impl<'a, 'b> Lexer<'a, 'b> {
         }
     }
 
+    fn read_comment(&mut self) -> Token<'a> {
+        // TODO: Handle \r\n
+        let start = self.offset - 1; // Includes the '#' in the comment.
+        let mut end = self.offset;
+        while !self.done && self.ch != ('\n' as u8) {
+            end += 1;
+            self.advance();
+        }
+        Token::Comment(&self.data[start..end])
+    }
     /*
     fn peek(&mut self) -> Option<u8> {
         assert!(
@@ -251,7 +262,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                     }
                 }
                 '$' => Some(Token::Escape),
-                '#' => Some(Token::Comment(&[0, 0])), // TODO: Read comment until newline.
+                '#' => Some(self.read_comment()),
                 _ => {
                     let err = format!("Unexpected character: {}", ch as char);
                     self.error(&err);
@@ -326,7 +337,6 @@ mod test {
         let input = r#"pool chairs
 pool tables
 pool noodles"#;
-        eprintln!("INPUT LEN {}", input.len());
         let table = &[
             (0, Some(Position { line: 1, column: 1 })),
             (4, Some(Position { line: 1, column: 5 })),
@@ -362,6 +372,43 @@ pool noodles"#;
         for token in &mut lexer {}
         for (pos, expected) in table {
             assert_eq!(lexer.to_position(*pos), *expected);
+        }
+    }
+
+    #[test]
+    fn test_comment() {
+        let table: &[(&str, &[&str])] = &[
+            ("# to the end", &["# to the end"]),
+            (" a # comment", &["# comment"]),
+            (
+                r#"pool chairs
+# a comment
+pool useful # another comment
+# pool nachos
+"#,
+                &["# a comment", "# another comment", "# pool nachos"],
+            ),
+        ];
+
+        for (input, expected_comments) in table {
+            let mut expected_iter = expected_comments.iter();
+            let res = parse_and_slice(input);
+            for token in res {
+                match token {
+                    Token::Comment(slice) => {
+                        let expectation = expected_iter
+                            .next()
+                            .expect("Got more comments than expected");
+                        let actual = std::str::from_utf8(slice).unwrap();
+                        assert_eq!(&actual, expectation);
+                    }
+                    _ => {}
+                };
+            }
+            assert!(
+                expected_iter.next().is_none(),
+                "Did not get as many comments as expected"
+            );
         }
     }
 
