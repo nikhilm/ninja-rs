@@ -1,11 +1,11 @@
-use std::slice::Iter;
+#![feature(is_sorted)]
 
-type ErrorHandler = Box<dyn Fn(&Position, &str)>;
+use std::slice::Iter;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Position {
-    line: u32,
-    column: u32,
+    line: usize,
+    column: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,20 +30,27 @@ pub enum Token<'a> {
 
 type TokenPosition<'a> = (Token<'a>, Position);
 
-pub struct Lexer<'a> {
+type ErrorHandler<'e> = Box<dyn FnMut(usize, &str) + 'e>;
+
+pub struct Lexer<'a, 'b> {
     data: &'a [u8],
     filename: Option<String>,
     ch: u8,
     done: bool,
     offset: usize,
-    read_offset: usize,
-    lineOffsets: Option<Vec<u32>>,
-    errorHandler: Option<ErrorHandler>,
-    errorCount: u32,
+    next_offset: usize,
+    // consider using `smallvec` later.
+    line_offsets: Vec<usize>,
+    error_handler: Option<ErrorHandler<'b>>,
+    pub error_count: u32,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(data: &'a [u8], filename: Option<String>, handler: Option<ErrorHandler>) -> Lexer {
+impl<'a, 'b> Lexer<'a, 'b> {
+    pub fn new(
+        data: &'a [u8],
+        filename: Option<String>,
+        handler: Option<ErrorHandler<'b>>,
+    ) -> Lexer<'a, 'b> {
         Lexer {
             data: data,
             filename: filename,
@@ -52,10 +59,10 @@ impl<'a> Lexer<'a> {
             ch: ' ' as u8,
             done: false,
             offset: 0,
-            read_offset: 0,
-            lineOffsets: None,
-            errorHandler: handler,
-            errorCount: 0,
+            next_offset: 0,
+            line_offsets: vec![0],
+            error_handler: handler,
+            error_count: 0,
         }
     }
 
@@ -73,6 +80,13 @@ impl<'a> Lexer<'a> {
     }
     */
 
+    fn error(&mut self, reason: &str) {
+        if self.error_handler.is_some() {
+            self.error_handler.as_mut().unwrap()(0, reason);
+        }
+        self.error_count += 1;
+    }
+
     fn skip_horizontal_whitespace(&mut self) {
         while self.ch == (' ' as u8) || self.ch == ('\t' as u8) {
             self.advance();
@@ -80,12 +94,12 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_identifier(&mut self) -> Token<'a> {
-        // The Ninja manual doesn't really define what an identifier is. Stick to ascii letters and
-        // digits + underscore for now.
+        // The Ninja manual doesn't really define what an identifier is. Since we need to handle
+        // paths, we keep going until whitespace.
 
         let span_start = self.offset;
         let mut span_end = self.offset; // exclusive
-        while self.ch.is_ascii_alphanumeric() || self.ch == ('_' as u8) {
+        while !self.ch.is_ascii_whitespace() {
             span_end += 1;
             if self.advance().is_none() {
                 break;
@@ -112,12 +126,16 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn record_line(&mut self) {
+        self.line_offsets.push(self.offset);
+    }
+
     fn advance(&mut self) -> Option<u8> {
-        // This exists to make sure we do not set read_offset to 1 on the very first read.
-        if self.read_offset < self.data.len() {
-            self.offset = self.read_offset;
-            self.ch = self.data[self.read_offset];
-            self.read_offset += 1;
+        // This exists to make sure we do not set next_offset to 1 on the very first read.
+        if self.next_offset < self.data.len() {
+            self.offset = self.next_offset;
+            self.ch = self.data[self.next_offset];
+            self.next_offset += 1;
             Some(self.ch)
         } else {
             self.done = true;
@@ -125,19 +143,47 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn to_position(&self, pos: usize) -> Option<Position> {
+        // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
+        // things populated?
+        assert!(self.done);
+        assert!(self.line_offsets.is_sorted());
+        if pos >= self.data.len() {
+            return None;
+        }
+
+        match self.line_offsets.binary_search(&pos) {
+            Ok(idx) => Some(Position {
+                line: idx + 1,
+                column: 1,
+            }),
+            Err(idx) => {
+                // Since 0 is the first element in the vec, nothing can be inserted before that, at
+                // position 0.
+                assert!(idx > 0);
+                Some(Position {
+                    line: idx,
+                    column: pos - self.line_offsets[idx - 1] + 1,
+                })
+            }
+        }
+    }
+
+    /*
     fn peek(&mut self) -> Option<u8> {
         assert!(
-            (self.read_offset == self.offset + 1) || (self.read_offset == 0 && self.offset == 0)
+            (self.next_offset == self.offset + 1) || (self.next_offset == 0 && self.offset == 0)
         );
-        if self.read_offset < self.data.len() {
-            Some(self.data[self.read_offset])
+        if self.next_offset < self.data.len() {
+            Some(self.data[self.next_offset])
         } else {
             None
         }
     }
+    */
 }
 
-impl<'a> Iterator for Lexer<'a> {
+impl<'a, 'b> Iterator for Lexer<'a, 'b> {
     type Item = Token<'a>;
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
@@ -168,6 +214,9 @@ impl<'a> Iterator for Lexer<'a> {
             // We are in the top-level loop and got a non-ASCII character. No idea how to
             // handle this!
             // TODO: Report useful error.
+            let err = format!("Unexpected byte: {}", self.ch);
+            self.error(&err);
+            self.advance();
             return Some(Token::Illegal(self.ch));
         }
 
@@ -179,7 +228,12 @@ impl<'a> Iterator for Lexer<'a> {
             let next = self.advance();
             match ch as char {
                 // TODO: Windows line ending support.
-                '\n' => Some(Token::Newline),
+                // Also not sure if yielding a newline token in the general case really makes
+                // sense. Ninja is sensitive about that only in certain cases.
+                '\n' => {
+                    self.record_line();
+                    Some(Token::Newline)
+                }
                 '\t' => Some(Token::Illegal('\t' as u8)),
                 // TODO: Handle indentation.
                 '=' => Some(Token::Equals),
@@ -198,7 +252,11 @@ impl<'a> Iterator for Lexer<'a> {
                 }
                 '$' => Some(Token::Escape),
                 '#' => Some(Token::Comment(&[0, 0])), // TODO: Read comment until newline.
-                _ => Some(Token::Illegal(ch)),
+                _ => {
+                    let err = format!("Unexpected character: {}", ch as char);
+                    self.error(&err);
+                    Some(Token::Illegal(ch))
+                }
             }
         }
     }
@@ -207,6 +265,7 @@ impl<'a> Iterator for Lexer<'a> {
 #[cfg(test)]
 mod test {
     use super::Lexer;
+    use super::Position;
     use super::Token;
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
@@ -230,6 +289,80 @@ mod test {
             }
             _ => panic!("Unexpected token {:?}", stream[1]),
         };
+    }
+
+    #[test]
+    fn test_error_triggered() {
+        // This interface is not very ergonomic...
+        let mut lexer = Lexer::new("pool )".as_bytes(), None, None);
+        for token in &mut lexer {}
+        assert_eq!(lexer.error_count, 1);
+    }
+
+    #[test]
+    fn test_error_handler() {
+        let mut handler_called = 0;
+        {
+            let handler = |pos: usize, err: &str| {
+                // Now this would need a ref to the lexer again to translate the pos to a Position.
+                // Which, again, needs a better interface.
+                // fn error() already borrows as mutable, so it can't pass a reference here.
+                handler_called += 1;
+            };
+
+            // This interface is not very ergonomic...
+            let mut lexer = Lexer::new("pool )".as_bytes(), None, Some(Box::new(handler)));
+            for token in &mut lexer {}
+            assert_eq!(lexer.error_count, 1);
+        }
+        assert_eq!(handler_called, 1);
+    }
+
+    #[test]
+    fn test_simple_positions() {
+        // TODO: Remember to keep extending this as we go.
+        // This one should be easy to write a generated test for, as that test can parse the
+        // generated input by line and use that to keep track of positions.
+        let input = r#"pool chairs
+pool tables
+pool noodles"#;
+        eprintln!("INPUT LEN {}", input.len());
+        let table = &[
+            (0, Some(Position { line: 1, column: 1 })),
+            (4, Some(Position { line: 1, column: 5 })),
+            (
+                11,
+                Some(Position {
+                    line: 1,
+                    column: 12,
+                }),
+            ),
+            (12, Some(Position { line: 2, column: 1 })),
+            (14, Some(Position { line: 2, column: 3 })),
+            (28, Some(Position { line: 3, column: 5 })),
+            (
+                34,
+                Some(Position {
+                    line: 3,
+                    column: 11,
+                }),
+            ),
+            (
+                35,
+                Some(Position {
+                    line: 3,
+                    column: 12,
+                }),
+            ),
+            // Incorrect! No such position.
+            (36, None),
+        ];
+
+        let mut lexer = Lexer::new(input.as_bytes(), None, None);
+        for token in &mut lexer {}
+        for (pos, expected) in table {
+            assert_eq!(lexer.to_position(*pos), *expected);
+        }
     }
 
     // TODO: Focus on simple errors and positions next.
