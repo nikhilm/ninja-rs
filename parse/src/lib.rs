@@ -8,8 +8,27 @@ pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a t
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Position {
+    filename: Option<String>, // TODO: &str; also, comparing Eq using filenames does not make sense.
     line: usize,
     column: usize,
+}
+
+impl Position {
+    fn new(filename: Option<String>, line: usize, column: usize) -> Position {
+        Position {
+            filename: filename,
+            line: line,
+            column: column,
+        }
+    }
+
+    fn untitled(line: usize, column: usize) -> Position {
+        Position {
+            filename: None,
+            line: line,
+            column: column,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,7 +53,7 @@ pub enum Token<'a> {
 
 type TokenPosition<'a> = (Token<'a>, Position);
 
-type ErrorHandler<'e> = Box<dyn FnMut(usize, &str) + 'e>;
+type ErrorHandler<'e> = Box<dyn FnMut(Position, &str) + 'e>;
 
 pub struct Lexer<'a, 'b> {
     data: &'a [u8],
@@ -84,9 +103,10 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
     */
 
-    fn error(&mut self, reason: &str) {
+    fn error(&mut self, pos: usize, reason: &str) {
         if self.error_handler.is_some() {
-            self.error_handler.as_mut().unwrap()(0, reason);
+            let pos = self.to_position(Pos(pos));
+            self.error_handler.as_mut().unwrap()(pos, reason);
         }
         self.error_count += 1;
     }
@@ -142,34 +162,37 @@ impl<'a, 'b> Lexer<'a, 'b> {
             self.next_offset += 1;
             Some(self.ch)
         } else {
-            self.done = true;
+            self.offset = self.data.len();
+            // TODO: Make self.ch unrepresentable.
+            self.ch = 0;
             None
         }
     }
 
-    // we could make `pos` an opaque newtype that cannot be constructed from a usize but only be obtained from a token/error
-    fn to_position(&self, pos: Pos) -> Option<Position> {
+    fn done(&self) -> bool {
+        self.offset >= self.data.len()
+    }
+
+    fn to_position(&self, pos: Pos) -> Position {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
-        assert!(self.done);
+        assert!(self.done());
         assert!(self.line_offsets.is_sorted());
         if pos.0 >= self.data.len() {
-            return None;
+            panic!("position past end of data");
         }
 
         match self.line_offsets.binary_search(&pos.0) {
-            Ok(idx) => Some(Position {
-                line: idx + 1,
-                column: 1,
-            }),
+            Ok(idx) => Position::new(self.filename.clone(), idx + 1, 1),
             Err(idx) => {
                 // Since 0 is the first element in the vec, nothing can be inserted before that, at
                 // position 0.
                 assert!(idx > 0);
-                Some(Position {
-                    line: idx,
-                    column: pos.0 - self.line_offsets[idx - 1] + 1,
-                })
+                Position::new(
+                    self.filename.clone(),
+                    idx,
+                    pos.0 - self.line_offsets[idx - 1] + 1,
+                )
             }
         }
     }
@@ -178,7 +201,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
         // TODO: Handle \r\n
         let start = self.offset - 1; // Includes the '#' in the comment.
         let mut end = self.offset;
-        while !self.done && self.ch != ('\n' as u8) {
+        while !self.done() && self.ch != ('\n' as u8) {
             end += 1;
             self.advance();
         }
@@ -221,7 +244,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
     // WHITESPACE(<actual>)...?
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_horizontal_whitespace();
-        if self.done {
+        if self.done() {
             return None;
         }
 
@@ -230,7 +253,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
             // handle this!
             // TODO: Report useful error.
             let err = format!("Unexpected byte: {}", self.ch);
-            self.error(&err);
+            self.error(self.offset, &err);
             self.advance();
             return Some(Token::Illegal(self.ch));
         }
@@ -269,7 +292,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                 '#' => Some(self.read_comment()),
                 _ => {
                     let err = format!("Unexpected character: {}", ch as char);
-                    self.error(&err);
+                    self.error(self.offset - 1, &err);
                     Some(Token::Illegal(ch))
                 }
             }
@@ -319,7 +342,7 @@ mod test {
     fn test_error_handler() {
         let mut handler_called = 0;
         {
-            let handler = |pos: usize, err: &str| {
+            let handler = |pos: Position, err: &str| {
                 // Now this would need a ref to the lexer again to translate the pos to a Position.
                 // Which, again, needs a better interface.
                 // fn error() already borrows as mutable, so it can't pass a reference here.
@@ -343,34 +366,14 @@ mod test {
 pool tables
 pool noodles"#;
         let table = &[
-            (0, Some(Position { line: 1, column: 1 })),
-            (4, Some(Position { line: 1, column: 5 })),
-            (
-                11,
-                Some(Position {
-                    line: 1,
-                    column: 12,
-                }),
-            ),
-            (12, Some(Position { line: 2, column: 1 })),
-            (14, Some(Position { line: 2, column: 3 })),
-            (28, Some(Position { line: 3, column: 5 })),
-            (
-                34,
-                Some(Position {
-                    line: 3,
-                    column: 11,
-                }),
-            ),
-            (
-                35,
-                Some(Position {
-                    line: 3,
-                    column: 12,
-                }),
-            ),
-            // Incorrect! No such position.
-            (36, None),
+            (0, Position::untitled(1, 1)),
+            (4, Position::untitled(1, 5)),
+            (11, Position::untitled(1, 12)),
+            (12, Position::untitled(2, 1)),
+            (14, Position::untitled(2, 3)),
+            (28, Position::untitled(3, 5)),
+            (34, Position::untitled(3, 11)),
+            (35, Position::untitled(3, 12)),
         ];
 
         let mut lexer = Lexer::new(input.as_bytes(), None, None);
