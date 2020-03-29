@@ -16,6 +16,8 @@ impl Position {
         Position {
             filename: filename,
             line: line,
+            // Either we are in a state that requires reading arbitrary input, or we are expecting
+            // to match the beginning of a declaration/keyword/identifier.
             column: column,
         }
     }
@@ -42,6 +44,8 @@ pub enum Token<'a> {
     Include,
     Indent,
     Newline,
+    // Yes, parser knowledge leaking here.
+    Path(&'a [u8]),
     Pipe,
     Pipe2,
     Pool,
@@ -49,9 +53,33 @@ pub enum Token<'a> {
     Subninja,
 }
 
+impl<'a> Token<'a> {
+    pub fn is_identifier(&self) -> bool {
+        match *self {
+            Token::Identifier(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_path(&self) -> bool {
+        match *self {
+            Token::Path(_) => true,
+            _ => false,
+        }
+    }
+}
+
 type TokenPosition<'a> = (Token<'a>, Position);
 
 type ErrorHandler<'e> = Box<dyn FnMut(Position, &str) + 'e>;
+
+#[derive(Debug, PartialEq, Eq)]
+enum LexerMode {
+    Default,
+    PathMode,
+    ValueMode,
+    BuildRuleMode,
+}
 
 pub struct Lexer<'a, 'b> {
     data: &'a [u8],
@@ -62,6 +90,7 @@ pub struct Lexer<'a, 'b> {
     next_offset: usize,
     // consider using `smallvec` later.
     line_offsets: Vec<usize>,
+    lexer_mode: LexerMode,
     error_handler: Option<ErrorHandler<'b>>,
     pub error_count: u32,
 }
@@ -72,16 +101,22 @@ impl<'a, 'b> Lexer<'a, 'b> {
         filename: Option<String>,
         handler: Option<ErrorHandler<'b>>,
     ) -> Lexer<'a, 'b> {
+        let mut done = false;
+        let mut ch = 0;
+        if data.len() == 0 {
+            done = true;
+        } else {
+            ch = data[0];
+        }
         Lexer {
             data: data,
             filename: filename,
-            // This allows skip_horizontal_whitespace as the first call to advance by one and set
-            // everything up.
-            ch: ' ' as u8,
-            done: false,
+            ch: ch,
+            done: done,
             offset: 0,
-            next_offset: 0,
+            next_offset: 1,
             line_offsets: vec![0],
+            lexer_mode: LexerMode::Default,
             error_handler: handler,
             error_count: 0,
         }
@@ -115,31 +150,46 @@ impl<'a, 'b> Lexer<'a, 'b> {
         }
     }
 
-    fn read_identifier(&mut self) -> Token<'a> {
+    fn is_permitted_identifier_char(ch: u8) -> bool {
+        ch.is_ascii_alphanumeric() || ch == '_' as u8
+    }
+
+    fn read_identifier(&mut self, pos: usize) -> Token<'a> {
+        assert!(pos < self.data.len());
         // The Ninja manual doesn't really define what an identifier is. Since we need to handle
         // paths, we keep going until whitespace.
 
-        let span_start = self.offset;
-        let mut span_end = self.offset; // exclusive
-        while !self.ch.is_ascii_whitespace() {
+        let span_start = pos;
+        let mut span_end = self.offset; // We've already been advanced and this is exclusive.
+        while Lexer::is_permitted_identifier_char(self.ch) {
             span_end += 1;
-            if self.advance().is_none() {
-                break;
-            }
+            self.advance();
         }
         Token::Identifier(&self.data[span_start..span_end])
     }
 
-    fn lookup_keyword(ident: Token) -> Token {
+    fn lookup_keyword(&mut self, ident: Token<'a>) -> Token<'a> {
         match ident {
             Token::Identifier(slice) => match slice {
                 // Know a better way than this? as_bytes() is not allowed here.
-                [98, 117, 105, 108, 100] => Token::Build,
-                [100, 101, 102, 97, 117, 108, 116] => Token::Default,
-                [105, 110, 99, 108, 117, 100, 101] => Token::Include,
+                [98, 117, 105, 108, 100] => {
+                    self.lexer_mode = LexerMode::PathMode;
+                    Token::Build
+                }
+                [100, 101, 102, 97, 117, 108, 116] => {
+                    self.lexer_mode = LexerMode::PathMode;
+                    Token::Default
+                }
+                [105, 110, 99, 108, 117, 100, 101] => {
+                    self.lexer_mode = LexerMode::PathMode;
+                    Token::Include
+                }
                 [112, 111, 111, 108] => Token::Pool,
                 [114, 117, 108, 101] => Token::Rule,
-                [115, 117, 98, 110, 105, 110, 106, 97] => Token::Subninja,
+                [115, 117, 98, 110, 105, 110, 106, 97] => {
+                    self.lexer_mode = LexerMode::PathMode;
+                    Token::Subninja
+                }
                 _ => ident,
             },
             _ => {
@@ -163,6 +213,17 @@ impl<'a, 'b> Lexer<'a, 'b> {
             self.offset = self.data.len();
             // TODO: Make self.ch unrepresentable.
             self.ch = 0;
+            None
+        }
+    }
+
+    fn peek(&mut self) -> Option<u8> {
+        assert!(
+            (self.next_offset == self.offset + 1) || (self.next_offset == 0 && self.offset == 0)
+        );
+        if self.next_offset < self.data.len() {
+            Some(self.data[self.next_offset])
+        } else {
             None
         }
     }
@@ -205,18 +266,79 @@ impl<'a, 'b> Lexer<'a, 'b> {
         }
         Token::Comment(&self.data[start..end])
     }
+
     /*
-    fn peek(&mut self) -> Option<u8> {
-        assert!(
-            (self.next_offset == self.offset + 1) || (self.next_offset == 0 && self.offset == 0)
-        );
-        if self.next_offset < self.data.len() {
-            Some(self.data[self.next_offset])
-        } else {
-            None
+     * Ninja lexing is context-sensitive. Sometimes we are reading keywords, sometimes identifiers,
+     * sometimes paths and sometimes strings that can have escape sequences and '$'.
+     */
+    fn read_literal_or_ident(&mut self, pos: usize) -> Option<Token<'a>> {
+        assert!(pos < self.data.len());
+        let ch = self.data[pos];
+        match &self.lexer_mode {
+            LexerMode::Default | LexerMode::BuildRuleMode => {
+                if Lexer::is_permitted_identifier_char(ch) {
+                    let ident = self.read_identifier(pos);
+                    if self.lexer_mode == LexerMode::BuildRuleMode {
+                        self.lexer_mode = LexerMode::PathMode;
+                    }
+                    Some(self.lookup_keyword(ident))
+                } else {
+                    None
+                }
+            }
+            LexerMode::PathMode => {
+                // parse the next "space separated" filename, which can include escaped colons.
+                // variables are not expanded here.
+                self.read_path(pos)
+            }
+            LexerMode::ValueMode => {
+                todo!("ValueMode");
+            }
         }
     }
-    */
+
+    fn read_path(&mut self, pos: usize) -> Option<Token<'a>> {
+        assert!(pos < self.data.len());
+        let start = pos;
+        let mut end = self.offset;
+        loop {
+            // This is effectively peeking.
+            // If we want to stop processing, at say ':', we will simply bail and the next call to
+            // next() will proceed from there.
+            match self.ch as char {
+                '$' => {
+                    todo!("escape sequences are not implemented!");
+                }
+                ' ' => {
+                    // Done with this path.
+                    break;
+                }
+                '|' => {
+                    todo!("Implicit outs/deps not supported!");
+                }
+                '\n' => {
+                    // Done with this path. also switch modes.
+                    self.lexer_mode = LexerMode::Default;
+                    break;
+                }
+                // Only expect to encounter this in `build` declarations.
+                // The parser will take care if that does not happen.
+                ':' => {
+                    // Separate from default because after reading the rule, we need to go back
+                    // to PathMode.
+                    self.lexer_mode = LexerMode::BuildRuleMode;
+                    break;
+                }
+                _ => {
+                    if self.advance().is_none() {
+                        break;
+                    }
+                    end += 1;
+                }
+            }
+        }
+        Some(Token::Path(&self.data[start..end]))
+    }
 }
 
 impl<'a, 'b> Iterator for Lexer<'a, 'b> {
@@ -241,28 +363,31 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
     // Should the lexer simply emit the token stream, i.e. DOLLAR, NEWLINE,
     // WHITESPACE(<actual>)...?
     fn next(&mut self) -> Option<Self::Item> {
-        self.skip_horizontal_whitespace();
-        if self.done() {
-            return None;
-        }
+        // There is only one reason this loop exists, which is to handle skipping non-indent
+        // whitespace. everything else should never come back here.
+        loop {
+            if self.done() {
+                return None;
+            }
 
-        if !self.ch.is_ascii() {
-            // We are in the top-level loop and got a non-ASCII character. No idea how to
-            // handle this!
-            // TODO: Report useful error.
-            let err = format!("Unexpected byte: {}", self.ch);
-            self.error(self.offset, &err);
-            self.advance();
-            return Some(Token::Illegal(self.ch));
-        }
-
-        if self.ch.is_ascii_alphabetic() {
-            Some(Lexer::lookup_keyword(self.read_identifier()))
-        } else {
+            let pos = self.offset;
             let ch = self.ch;
+
+            if ch == ' ' as u8 || ch == '\t' as u8 {
+                // If this marks the beginning of the current line, consume all whitespace as an indent,
+                // otherwise skip horizontal whitespace.
+                let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos;
+                self.skip_horizontal_whitespace();
+                if is_indent {
+                    return Some(Token::Indent);
+                } else {
+                    continue;
+                }
+            }
+
             // Always make progress.
             let next = self.advance();
-            match ch as char {
+            return match ch as char {
                 // TODO: Windows line ending support.
                 // Also not sure if yielding a newline token in the general case really makes
                 // sense. Ninja is sensitive about that only in certain cases.
@@ -270,9 +395,10 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                     self.record_line();
                     Some(Token::Newline)
                 }
-                '\t' => Some(Token::Illegal('\t' as u8)),
-                // TODO: Handle indentation.
-                '=' => Some(Token::Equals),
+                '=' => {
+                    self.lexer_mode = LexerMode::PathMode;
+                    Some(Token::Equals)
+                }
                 ':' => Some(Token::Colon),
                 '|' => {
                     if let Some(c) = next {
@@ -287,13 +413,15 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                     }
                 }
                 '$' => Some(Token::Escape),
+                // Ninja only allows comments on newlines, so the other modes treat this as a
+                // literal. we may want a warning or something.
                 '#' => Some(self.read_comment()),
-                _ => {
+                _ => self.read_literal_or_ident(pos).or_else(|| {
                     let err = format!("Unexpected character: {}", ch as char);
-                    self.error(self.offset - 1, &err);
+                    self.error(pos, &err);
                     Some(Token::Illegal(ch))
-                }
-            }
+                }),
+            };
         }
     }
 }
@@ -312,7 +440,7 @@ mod test {
     }
 
     #[test]
-    fn test_simple() {
+    fn test_simple_colon() {
         assert_eq!(&parse_and_slice(":"), &[Token::Colon]);
     }
 
@@ -418,29 +546,74 @@ pool useful # another comment
         }
     }
 
-    // TODO: Focus on simple errors and positions next.
+    #[test]
+    fn test_rule_line() {
+        let res = parse_and_slice("rule cc");
+        assert_eq!(res[0], Token::Rule);
+        assert!(res[1].is_identifier());
+    }
 
-    /*
-        #[test]
-        fn test_basic_rule() {
-            let input = r#"
-            rule cc
-                command = gcc -o $out -c $in
-    "#;
-            let lexer = Lexer::new(input.as_bytes(), None, None);
-            lexer.lex();
+    // The non-build kinds.
+    #[test]
+    fn test_simple_pathmodes() {
+        let is_keyword = |k: &Token| match *k {
+            Token::Subninja | Token::Include | Token::Default => true,
+            _ => false,
+        };
+
+        let table = &["subninja apath", "include apath", "default apath"];
+        for test in table {
+            let res = parse_and_slice(test);
+            assert_eq!(res.len(), 2);
+            assert!(is_keyword(&res[0]));
+            assert!(res[1].is_path());
         }
+    }
 
-            #[test]
-            fn test_chars() {
-                let input = r#"
+    #[test]
+    fn test_build_simple() {
+        let res = parse_and_slice("build foo.o: cc foo.c");
+        assert_eq!(res.len(), 5);
+        assert_eq!(res[0], Token::Build);
+        assert!(res[1].is_path());
+        assert_eq!(res[2], Token::Colon);
+        assert!(res[3].is_identifier());
+        assert!(res[4].is_path());
+    }
+
+    #[test]
+    fn test_simple_rule() {
+        let res = parse_and_slice(
+            r#"rule cc
+    command = gcc"#,
+        );
+        assert_eq!(res[0], Token::Rule);
+        assert!(res[1].is_identifier());
+        assert_eq!(&res[2..4], &[Token::Newline, Token::Indent]);
+        assert!(res[4].is_identifier());
+        assert_eq!(res[5], Token::Equals);
+        // TODO: actually eval string.
+        assert!(res[6].is_path());
+    }
+
+    #[test]
+    fn test_chars() {
+        let res = parse_and_slice(
+            r#"
                 :||=
-                "#;
-                let lexer = Lexer::new(input);
-                assert_eq!(
-                    lexer.lex().collect::<Vec<Token>>(),
-                    vec![Token::Colon, Token::Pipe2, Token::Equals]
-                );
-            }
-        */
+                "#,
+        );
+        assert_eq!(
+            res,
+            vec![
+                Token::Newline,
+                Token::Indent,
+                Token::Colon,
+                Token::Pipe2,
+                Token::Equals,
+                Token::Newline,
+                Token::Indent
+            ]
+        );
+    }
 }
