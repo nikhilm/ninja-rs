@@ -1,5 +1,3 @@
-use std::slice::Iter;
-
 /// Reflects a position in the stream. This can be translated to a line+column Position using
 /// Lexer::to_position.
 pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a token/error.
@@ -43,6 +41,7 @@ pub enum Token<'a> {
     Comment(&'a [u8]),
     Include,
     Indent,
+    Literal(&'a [u8]),
     Newline,
     // Yes, parser knowledge leaking here.
     Path(&'a [u8]),
@@ -67,9 +66,21 @@ impl<'a> Token<'a> {
             _ => false,
         }
     }
-}
 
-type TokenPosition<'a> = (Token<'a>, Position);
+    pub fn is_literal(&self) -> bool {
+        match *self {
+            Token::Literal(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn value(&self) -> &'a [u8] {
+        match *self {
+            Token::Comment(v) | Token::Identifier(v) | Token::Literal(v) | Token::Path(v) => v,
+            _ => panic!("Incorrect token type"),
+        }
+    }
+}
 
 type ErrorHandler<'e> = Box<dyn FnMut(Position, &str) + 'e>;
 
@@ -85,7 +96,6 @@ pub struct Lexer<'a, 'b> {
     data: &'a [u8],
     filename: Option<String>,
     ch: u8,
-    done: bool,
     offset: usize,
     next_offset: usize,
     // consider using `smallvec` later.
@@ -101,18 +111,14 @@ impl<'a, 'b> Lexer<'a, 'b> {
         filename: Option<String>,
         handler: Option<ErrorHandler<'b>>,
     ) -> Lexer<'a, 'b> {
-        let mut done = false;
         let mut ch = 0;
-        if data.len() == 0 {
-            done = true;
-        } else {
+        if data.len() > 0 {
             ch = data[0];
         }
         Lexer {
             data: data,
             filename: filename,
             ch: ch,
-            done: done,
             offset: 0,
             next_offset: 1,
             line_offsets: vec![0],
@@ -217,17 +223,6 @@ impl<'a, 'b> Lexer<'a, 'b> {
         }
     }
 
-    fn peek(&mut self) -> Option<u8> {
-        assert!(
-            (self.next_offset == self.offset + 1) || (self.next_offset == 0 && self.offset == 0)
-        );
-        if self.next_offset < self.data.len() {
-            Some(self.data[self.next_offset])
-        } else {
-            None
-        }
-    }
-
     fn done(&self) -> bool {
         self.offset >= self.data.len()
     }
@@ -289,15 +284,13 @@ impl<'a, 'b> Lexer<'a, 'b> {
             LexerMode::PathMode => {
                 // parse the next "space separated" filename, which can include escaped colons.
                 // variables are not expanded here.
-                self.read_path(pos)
+                Some(self.read_path(pos))
             }
-            LexerMode::ValueMode => {
-                todo!("ValueMode");
-            }
+            LexerMode::ValueMode => Some(self.read_literal(pos)),
         }
     }
 
-    fn read_path(&mut self, pos: usize) -> Option<Token<'a>> {
+    fn read_path(&mut self, pos: usize) -> Token<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
@@ -330,14 +323,39 @@ impl<'a, 'b> Lexer<'a, 'b> {
                     break;
                 }
                 _ => {
+                    end += 1;
                     if self.advance().is_none() {
                         break;
                     }
-                    end += 1;
                 }
             }
         }
-        Some(Token::Path(&self.data[start..end]))
+        Token::Path(&self.data[start..end])
+    }
+
+    fn read_literal(&mut self, pos: usize) -> Token<'a> {
+        assert!(pos < self.data.len());
+        let start = pos;
+        let mut end = self.offset;
+        loop {
+            match self.ch as char {
+                '$' => {
+                    todo!("escape sequences are not implemented!");
+                }
+                '\n' => {
+                    // Done with this literal. also switch modes.
+                    self.lexer_mode = LexerMode::Default;
+                    break;
+                }
+                _ => {
+                    end += 1;
+                    if self.advance().is_none() {
+                        break;
+                    }
+                }
+            }
+        }
+        Token::Literal(&self.data[start..end])
     }
 }
 
@@ -396,7 +414,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                     Some(Token::Newline)
                 }
                 '=' => {
-                    self.lexer_mode = LexerMode::PathMode;
+                    self.lexer_mode = LexerMode::ValueMode;
                     Some(Token::Equals)
                 }
                 ':' => Some(Token::Colon),
@@ -439,6 +457,31 @@ mod test {
         lexer.collect::<Vec<Token>>()
     }
 
+    fn readable_byte_compare(actual: &[u8], expected: &str) {
+        if actual != expected.as_bytes() {
+            panic!(
+                "Expected: {}, got {}",
+                expected,
+                std::str::from_utf8(actual).unwrap()
+            );
+        }
+    }
+
+    fn check_identifier(token: &Token, expected: &str) {
+        assert!(token.is_identifier());
+        readable_byte_compare(token.value(), expected);
+    }
+
+    fn check_path(token: &Token, expected: &str) {
+        assert!(token.is_path());
+        readable_byte_compare(token.value(), expected);
+    }
+
+    fn check_literal(token: &Token, expected: &str) {
+        assert!(token.is_literal());
+        readable_byte_compare(token.value(), expected);
+    }
+
     #[test]
     fn test_simple_colon() {
         assert_eq!(&parse_and_slice(":"), &[Token::Colon]);
@@ -448,12 +491,7 @@ mod test {
     fn test_pool_simple() {
         let stream = parse_and_slice("pool chairs");
         assert_eq!(stream[0], Token::Pool);
-        match stream[1] {
-            Token::Identifier(span) => {
-                assert_eq!(span, "chairs".as_bytes());
-            }
-            _ => panic!("Unexpected token {:?}", stream[1]),
-        };
+        check_identifier(&stream[1], "chairs");
     }
 
     #[test]
@@ -550,7 +588,7 @@ pool useful # another comment
     fn test_rule_line() {
         let res = parse_and_slice("rule cc");
         assert_eq!(res[0], Token::Rule);
-        assert!(res[1].is_identifier());
+        check_identifier(&res[1], "cc");
     }
 
     // The non-build kinds.
@@ -566,7 +604,7 @@ pool useful # another comment
             let res = parse_and_slice(test);
             assert_eq!(res.len(), 2);
             assert!(is_keyword(&res[0]));
-            assert!(res[1].is_path());
+            check_path(&res[1], "apath");
         }
     }
 
@@ -575,10 +613,10 @@ pool useful # another comment
         let res = parse_and_slice("build foo.o: cc foo.c");
         assert_eq!(res.len(), 5);
         assert_eq!(res[0], Token::Build);
-        assert!(res[1].is_path());
+        check_path(&res[1], "foo.o");
         assert_eq!(res[2], Token::Colon);
-        assert!(res[3].is_identifier());
-        assert!(res[4].is_path());
+        check_identifier(&res[3], "cc");
+        check_path(&res[4], "foo.c");
     }
 
     #[test]
@@ -588,12 +626,11 @@ pool useful # another comment
     command = gcc"#,
         );
         assert_eq!(res[0], Token::Rule);
-        assert!(res[1].is_identifier());
+        check_identifier(&res[1], "cc");
         assert_eq!(&res[2..4], &[Token::Newline, Token::Indent]);
-        assert!(res[4].is_identifier());
+        check_identifier(&res[4], "command");
         assert_eq!(res[5], Token::Equals);
-        // TODO: actually eval string.
-        assert!(res[6].is_path());
+        check_literal(&res[6], "gcc");
     }
 
     #[test]
