@@ -1,26 +1,21 @@
 #![feature(is_sorted)]
 #![feature(todo_macro)]
 
+use std::fmt::{Display, Formatter};
+
 pub mod lexer;
 
-use lexer::Lexer;
-use lexer::Token;
+use lexer::{Lexer, Token};
 
 #[derive(Debug)]
-struct Rule<'a> {
-    name: &'a [u8],
-    command: &'a [u8],
+struct Rule {
+    name: String,
+    command: String,
 }
 
 // TODO: Canonicalization pass
 // var evaluation
 // lifetimes and graphs in Rust
-
-#[derive(Debug)]
-struct Pool<'a> {
-    name: &'a [u8],
-    depth: u32,
-}
 
 #[derive(Debug)]
 struct BuildEdge {
@@ -30,23 +25,45 @@ struct BuildEdge {
 }
 
 #[derive(Debug)]
-struct BuildDescription<'a> {
+pub struct BuildDescription {
     // environment: Env, // TODO
-    rules: Vec<Rule<'a>>,
+    rules: Vec<Rule>, // hashtable?
     build_edges: Vec<BuildEdge>,
     // defaults: Vec<...>, // TODO
-    pools: Vec<Pool<'a>>, // TODO
+}
+
+impl BuildDescription {
+    fn new() -> BuildDescription {
+        BuildDescription {
+            rules: Vec::new(),
+            build_edges: Vec::new(),
+        }
+    }
+
+    fn add_rule(&mut self, rule: Rule) {
+        self.rules.push(rule);
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseError {}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        todo!("implement this");
+    }
 }
 
 pub struct Parser<'a, 'b> {
     lexer: Lexer<'a, 'b>,
-    build_description: BuildDescription<'a>,
+    build_description: BuildDescription,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
     pub fn new(input: &[u8]) -> Parser {
         Parser {
             lexer: Lexer::new(input, None, None),
+            build_description: BuildDescription::new(),
         }
     }
 
@@ -76,7 +93,10 @@ impl<'a, 'b> Parser<'a, 'b> {
         if let Some(token) = self.lexer.next() {
             match token {
                 Token::Newline => {}
-                _ => todo!("Error handling"),
+                _ => {
+                    eprintln!("TOK {:?}", token);
+                    todo!("Error handling")
+                }
             }
         }
     }
@@ -106,33 +126,33 @@ impl<'a, 'b> Parser<'a, 'b> {
         (var.value(), value.expect("value").value())
     }
 
-    fn parse_rule(&mut self) -> Rule<'a> {
+    fn token_to_string(token: Token) -> Result<String, ParseError> {
+        // TODO: What we would really like is to convert utf8 errors into a position in the token
+        // stream and generate a nice error.
+        Ok(std::str::from_utf8(token.value()).expect("utf8").to_owned())
+    }
+
+    fn parse_rule(&mut self) -> Result<(), ParseError> {
         let identifier = self.expect_identifier();
         self.expect_and_discard_newline();
         // TODO: Do all the scoping and env stuff.
-        loop {
-            if !self.consume_indent() {
-                break;
-            }
-            let (var, value) = self.read_assignment();
-            if var != "command".as_bytes() {
-                todo!("Don't know how to handle anything except command");
-            }
-            return Rule {
-                name: identifier.value(),
-                command: value,
-            };
+        assert!(self.consume_indent());
+        let (var, value) = self.read_assignment();
+        if var != "command".as_bytes() {
+            todo!("Don't know how to handle anything except command");
         }
-
-        todo!("OOPS!");
+        self.build_description.add_rule(Rule {
+            name: Parser::token_to_string(identifier)?,
+            command: std::str::from_utf8(value).expect("utf8").to_owned(),
+        });
+        Ok(())
     }
 
-    pub fn parse(&mut self) -> Result<BuildDescription<'a>> {
+    pub fn parse(mut self) -> Result<BuildDescription, ParseError> {
         while let Some(token) = self.lexer.next() {
             match token {
                 Token::Rule => {
-                    let rule = self.parse_rule();
-                    eprintln!("Got rule {:?}", rule);
+                    self.parse_rule()?;
                 }
                 Token::Newline => {}
                 _ => {
@@ -140,6 +160,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 }
             }
         }
+        Ok(self.build_description)
     }
 }
 
