@@ -1,5 +1,6 @@
 /// Reflects a position in the stream. This can be translated to a line+column Position using
 /// Lexer::to_position.
+#[derive(Copy, Clone)]
 pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a token/error.
 
 #[derive(Debug, PartialEq, Eq)]
@@ -142,9 +143,9 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
     */
 
-    fn error(&mut self, pos: usize, reason: &str) {
+    fn error(&mut self, pos: Pos, reason: &str) {
         if self.error_handler.is_some() {
-            let pos = self.to_position(Pos(pos));
+            let pos = self.to_position(pos);
             self.error_handler.as_mut().unwrap()(pos, reason);
         }
         self.error_count += 1;
@@ -359,8 +360,10 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
 }
 
+type TokenPos<'a> = (Token<'a>, Pos);
+
 impl<'a, 'b> Iterator for Lexer<'a, 'b> {
-    type Item = Token<'a>;
+    type Item = TokenPos<'a>;
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
     // other hand, leading whitespace is significant, and does affect the lexer. In addition, `$`
@@ -388,16 +391,16 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                 return None;
             }
 
-            let pos = self.offset;
+            let pos = Pos(self.offset);
             let ch = self.ch;
 
             if ch == ' ' as u8 || ch == '\t' as u8 {
                 // If this marks the beginning of the current line, consume all whitespace as an indent,
                 // otherwise skip horizontal whitespace.
-                let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos;
+                let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos.0;
                 self.skip_horizontal_whitespace();
                 if is_indent {
-                    return Some(Token::Indent);
+                    return Some((Token::Indent, pos));
                 } else {
                     continue;
                 }
@@ -411,34 +414,37 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
                 // sense. Ninja is sensitive about that only in certain cases.
                 '\n' => {
                     self.record_line();
-                    Some(Token::Newline)
+                    Some((Token::Newline, pos))
                 }
                 '=' => {
                     self.lexer_mode = LexerMode::ValueMode;
-                    Some(Token::Equals)
+                    Some((Token::Equals, pos))
                 }
-                ':' => Some(Token::Colon),
+                ':' => Some((Token::Colon, pos)),
                 '|' => {
                     if let Some(c) = next {
                         if c == ('|' as u8) {
                             self.advance();
-                            Some(Token::Pipe2)
+                            Some((Token::Pipe2, pos))
                         } else {
-                            Some(Token::Pipe)
+                            Some((Token::Pipe, pos))
                         }
                     } else {
-                        Some(Token::Pipe)
+                        Some((Token::Pipe, pos))
                     }
                 }
-                '$' => Some(Token::Escape),
+                '$' => Some((Token::Escape, pos)),
                 // Ninja only allows comments on newlines, so the other modes treat this as a
                 // literal. we may want a warning or something.
-                '#' => Some(self.read_comment()),
-                _ => self.read_literal_or_ident(pos).or_else(|| {
-                    let err = format!("Unexpected character: {}", ch as char);
-                    self.error(pos, &err);
-                    Some(Token::Illegal(ch))
-                }),
+                '#' => Some((self.read_comment(), pos)),
+                _ => self
+                    .read_literal_or_ident(pos.0)
+                    .map(|x| (x, pos))
+                    .or_else(|| {
+                        let err = format!("Unexpected character: {}", ch as char);
+                        self.error(pos, &err);
+                        Some((Token::Illegal(ch), pos))
+                    }),
             };
         }
     }
@@ -446,10 +452,7 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
 
 #[cfg(test)]
 mod test {
-    use super::Lexer;
-    use super::Pos;
-    use super::Position;
-    use super::Token;
+    use super::{Lexer, Pos, Position, Token};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
     fn parse_and_slice(input: &str) -> Vec<Token> {

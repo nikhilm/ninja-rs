@@ -68,7 +68,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn expect_identifier(&mut self) -> Token<'a> {
-        if let Some(token) = self.lexer.next() {
+        if let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Identifier(_) => token,
                 _ => todo!("Error handling"),
@@ -79,7 +79,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn consume_indent(&mut self) -> bool {
-        if let Some(token) = self.lexer.next() {
+        if let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Indent => true,
                 _ => false,
@@ -89,21 +89,23 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    fn expect_and_discard_newline(&mut self) {
-        if let Some(token) = self.lexer.next() {
+    fn discard_newline(&mut self) -> Result<(), ParseError> {
+        if let Some((token, pos)) = self.lexer.next() {
             match token {
-                Token::Newline => {}
+                Token::Newline => Ok(()),
                 _ => {
                     eprintln!("TOK {:?}", token);
                     todo!("Error handling")
                 }
             }
+        } else {
+            todo!("eof error");
         }
     }
 
     fn read_assignment(&mut self) -> (&'a [u8], &'a [u8]) {
         let var = self.expect_identifier();
-        if let Some(token) = self.lexer.next() {
+        if let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Equals => {}
                 _ => todo!("Error handling"),
@@ -113,7 +115,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
 
         let mut value: Option<Token<'a>> = None;
-        if let Some(token) = self.lexer.next() {
+        if let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Literal(_) => {
                     value = Some(token);
@@ -134,7 +136,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
     fn parse_rule(&mut self) -> Result<(), ParseError> {
         let identifier = self.expect_identifier();
-        self.expect_and_discard_newline();
+        self.discard_newline()?;
         // TODO: Do all the scoping and env stuff.
         assert!(self.consume_indent());
         let (var, value) = self.read_assignment();
@@ -149,7 +151,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     pub fn parse(mut self) -> Result<BuildDescription, ParseError> {
-        while let Some(token) = self.lexer.next() {
+        while let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Rule => {
                     self.parse_rule()?;
