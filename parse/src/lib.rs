@@ -221,7 +221,13 @@ impl<'a, 'b> Parser<'a, 'b> {
                         eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
                         state = State::ReadRemainingOutputs;
                     }
-                    _ => todo!("Error expected at least one path"),
+                    _ => {
+                        return Err(ParseError::new(
+                            "Expected at least one output for build",
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
                 },
                 State::ReadRemainingOutputs => match token {
                     Token::Path(v) => {
@@ -234,14 +240,26 @@ impl<'a, 'b> Parser<'a, 'b> {
                     Token::Colon => {
                         state = State::ReadRule;
                     }
-                    _ => todo!("Error path or colon"),
+                    _ => {
+                        return Err(ParseError::new(
+                            format!("Expected another output or {}, got {}", Token::Colon, token),
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
                 },
                 State::ReadRule => match token {
                     Token::Identifier(v) => {
                         eprintln!("Got rule name {}", std::str::from_utf8(v).unwrap());
                         state = State::ReadInputs;
                     }
-                    _ => todo!("Error identifier rule name"),
+                    _ => {
+                        return Err(ParseError::new(
+                            format!("Expected rule name, got {}", token),
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
                 },
                 State::ReadInputs => match token {
                     Token::Path(v) => {
@@ -250,7 +268,13 @@ impl<'a, 'b> Parser<'a, 'b> {
                     Token::Newline => {
                         break;
                     }
-                    _ => todo!("Error path or newline"),
+                    _ => {
+                        return Err(ParseError::new(
+                            format!("Expected input or {}, got {}", Token::Newline, token),
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
                 },
             }
         }
@@ -261,7 +285,10 @@ impl<'a, 'b> Parser<'a, 'b> {
         if state == State::ReadInputs {
             Ok(())
         } else {
-            todo!("Error unexpected EOF")
+            Err(ParseError::eof(
+                "unexpected EOF in the middle of a build edge",
+                &self.lexer,
+            ))
         }
     }
 
@@ -357,9 +384,27 @@ command"#,
             "build foo.o foo.p: touch inp1 inp2",
             r#"build foo.o foo.p: touch inp1 inp2
 build bar.o: compile inp3"#,
+            r#"build foo.o foo.p: touch inp1 inp2
+rule other
+  command = gcc"#,
         ] {
             let mut parser = Parser::new(input.as_bytes(), None);
-            parser.parse().expect("valid parse");
+            let _ = parser.parse().expect("valid parse");
+        }
+    }
+
+    #[test]
+    fn test_build_fail_first_line() {
+        for input in &[
+            "build", // just bad
+            r#"build
+"#, // just bad
+            "build: touch", // missing output
+            "build foo.o touch", // no colon
+            "build foo.o: ", // no rule
+        ] {
+            let mut parser = Parser::new(input.as_bytes(), None);
+            let _ = parser.parse().expect_err("parse should fail");
         }
     }
 }
