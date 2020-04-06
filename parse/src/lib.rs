@@ -223,7 +223,9 @@ rule cc
 build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
-        let mut parser = Parser::new(input.as_bytes());
+        let mut parser = Parser::new(input.as_bytes(), None);
         parser.parse();
     }
+
+    // TODO LEts write more tests.
 }

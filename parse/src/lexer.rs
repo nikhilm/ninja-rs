@@ -529,12 +529,12 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
 
 #[cfg(test)]
 mod test {
-    use super::{Lexer, Pos, Position, Token};
+    use super::{Lexer, Pos, Position, Token, TokenPos};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
     fn parse_and_slice(input: &str) -> Vec<Token> {
         let lexer = Lexer::new(input.as_bytes(), None, None);
-        lexer.collect::<Vec<Token>>()
+        lexer.map(|(token, pos)| token).collect::<Vec<Token>>()
     }
 
     fn readable_byte_compare(actual: &[u8], expected: &str) {
