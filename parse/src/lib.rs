@@ -203,11 +203,76 @@ impl<'a, 'b> Parser<'a, 'b> {
         Ok(())
     }
 
+    fn parse_build(&mut self) -> Result<(), ParseError> {
+        // TODO: Support all kinds of optional outputs and dependencies.
+        #[derive(Debug, PartialEq, Eq)]
+        enum State {
+            ReadFirstOutput,
+            ReadRemainingOutputs,
+            ReadRule,
+            ReadInputs,
+        };
+
+        let mut state = State::ReadFirstOutput;
+        while let Some((token, pos)) = self.lexer.next() {
+            match state {
+                State::ReadFirstOutput => match token {
+                    Token::Path(v) => {
+                        eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
+                        state = State::ReadRemainingOutputs;
+                    }
+                    _ => todo!("Error expected at least one path"),
+                },
+                State::ReadRemainingOutputs => match token {
+                    Token::Path(v) => {
+                        eprintln!(
+                            "Got another output path {}",
+                            std::str::from_utf8(v).unwrap()
+                        );
+                        state = State::ReadRemainingOutputs;
+                    }
+                    Token::Colon => {
+                        state = State::ReadRule;
+                    }
+                    _ => todo!("Error path or colon"),
+                },
+                State::ReadRule => match token {
+                    Token::Identifier(v) => {
+                        eprintln!("Got rule name {}", std::str::from_utf8(v).unwrap());
+                        state = State::ReadInputs;
+                    }
+                    _ => todo!("Error identifier rule name"),
+                },
+                State::ReadInputs => match token {
+                    Token::Path(v) => {
+                        eprintln!("Got input path {}", std::str::from_utf8(v).unwrap());
+                    }
+                    Token::Newline => {
+                        break;
+                    }
+                    _ => todo!("Error path or newline"),
+                },
+            }
+        }
+
+        // TODO: Read remaining lines as bindings as long as indents are encountered.
+
+        // EOF is OK as long as our state machine is done.
+        if state == State::ReadInputs {
+            Ok(())
+        } else {
+            todo!("Error unexpected EOF")
+        }
+    }
+
     pub fn parse(mut self) -> Result<BuildDescription, ParseError> {
         while let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Rule => {
                     self.parse_rule()?;
+                }
+                Token::Build => {
+                    self.parse_build()?;
                 }
                 Token::Newline => {}
                 _ => {
@@ -280,6 +345,21 @@ command"#,
             assert_eq!(err.position.line, 2);
             assert_eq!(err.position.column, *expected_col);
             assert!(err.message.contains(expected_token));
+        }
+    }
+
+    #[test]
+    fn test_build_no_bindings() {
+        for input in &[
+            "build foo.o: touch",
+            "build foo.o foo.p: touch",
+            "build foo.o foo.p foo.q: touch",
+            "build foo.o foo.p: touch inp1 inp2",
+            r#"build foo.o foo.p: touch inp1 inp2
+build bar.o: compile inp3"#,
+        ] {
+            let mut parser = Parser::new(input.as_bytes(), None);
+            parser.parse().expect("valid parse");
         }
     }
 }
