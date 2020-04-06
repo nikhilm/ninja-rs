@@ -270,8 +270,8 @@ impl<'a, 'b> Lexer<'a, 'b> {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
         assert!(self.line_offsets.is_sorted());
-        if pos.0 >= self.data.len() {
-            panic!("position past end of data");
+        if pos.0 > self.data.len() {
+            panic!("position {} past end of data {}", pos.0, self.data.len());
         }
 
         match self.line_offsets.binary_search(&pos.0) {
