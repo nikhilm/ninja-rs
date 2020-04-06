@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Display, Formatter};
+
 /// Reflects a position in the stream. This can be translated to a line+column Position using
 /// Lexer::to_position.
 #[derive(Copy, Clone)]
@@ -5,9 +7,9 @@ pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a t
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Position {
-    filename: Option<String>, // TODO: &str; also, comparing Eq using filenames does not make sense.
-    line: usize,
-    column: usize,
+    pub filename: Option<String>, // TODO: &str; also, comparing Eq using filenames does not make sense.
+    pub line: usize,
+    pub column: usize,
 }
 
 impl Position {
@@ -51,6 +53,35 @@ pub enum Token<'a> {
     Pool,
     Rule,
     Subninja,
+}
+
+impl<'a> Display for Token<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match *self {
+                Token::Build => "build",
+                Token::Colon => ":",
+                Token::Default => "default",
+                Token::Escape => "$",
+                Token::Equals => "=",
+                Token::Identifier(_) => "identifier",
+                Token::Illegal(_) => "illegal",
+                Token::Comment(_) => "comment",
+                Token::Include => "include",
+                Token::Indent => "indent",
+                Token::Literal(_) => "literal",
+                Token::Newline => "newline",
+                Token::Path(_) => "path",
+                Token::Pipe => "|",
+                Token::Pipe2 => "||",
+                Token::Pool => "pool",
+                Token::Rule => "rule",
+                Token::Subninja => "subninja",
+            }
+        )
+    }
 }
 
 impl<'a> Token<'a> {
@@ -228,10 +259,16 @@ impl<'a, 'b> Lexer<'a, 'b> {
         self.offset >= self.data.len()
     }
 
-    fn to_position(&self, pos: Pos) -> Position {
+    /// May only be called once the stream is consumed, to ensure we got line numbers right when a
+    /// conversion to Position is requested.
+    pub fn last_pos(&self) -> Pos {
+        assert!(self.done());
+        Pos(self.data.len())
+    }
+
+    pub fn to_position(&self, pos: Pos) -> Position {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
-        assert!(self.done());
         assert!(self.line_offsets.is_sorted());
         if pos.0 >= self.data.len() {
             panic!("position past end of data");
@@ -250,6 +287,31 @@ impl<'a, 'b> Lexer<'a, 'b> {
                 )
             }
         }
+    }
+
+    /// Panics if position.line is not valid.
+    pub fn retrieve_line(&self, position: &Position) -> &'a [u8] {
+        assert!(position.line >= 1 && position.line <= self.line_offsets.len());
+        let idx = position.line - 1;
+        let start = self.line_offsets[idx];
+        let end = if idx == self.line_offsets.len() - 1 {
+            // Last element.
+            // Either we haven't parsed a newline yet, or it is EOF.
+            let mut i = start;
+            while i < self.data.len() {
+                // We could populate line offsets here, but since this is only called on errors, it
+                // isn't worth it.
+                if self.data[i] == ('\n' as u8) {
+                    break;
+                }
+                i += 1;
+            }
+            i
+        } else {
+            self.line_offsets[idx + 1]
+        };
+
+        &self.data[start..end]
     }
 
     fn read_comment(&mut self) -> Token<'a> {
@@ -357,6 +419,19 @@ impl<'a, 'b> Lexer<'a, 'b> {
             }
         }
         Token::Literal(&self.data[start..end])
+    }
+}
+
+impl<'a, 'b> Debug for Lexer<'a, 'b> {
+    fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
+        fmt.debug_struct("Lexer")
+            .field("filename", &self.filename)
+            .field("ch", &self.ch)
+            .field("offset", &self.offset)
+            .field("next_offset", &self.next_offset)
+            .field("lexer_mode", &self.lexer_mode)
+            .field("error_count", &self.error_count)
+            .finish()
     }
 }
 

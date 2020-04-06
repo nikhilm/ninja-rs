@@ -3,9 +3,9 @@
 
 use std::fmt::{Display, Formatter};
 
-pub mod lexer;
+mod lexer;
 
-use lexer::{Lexer, Token};
+use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
 struct Rule {
@@ -46,11 +46,48 @@ impl BuildDescription {
 }
 
 #[derive(Debug)]
-pub struct ParseError {}
+pub struct ParseError {
+    position: Position,
+    line: String,
+    message: String,
+}
+
+impl ParseError {
+    fn new<S: Into<String>>(msg: S, pos: lexer::Pos, lexer: &Lexer) -> ParseError {
+        let position = lexer.to_position(pos);
+        let line = lexer.retrieve_line(&position);
+        // TODO: Invalid utf8 should trigger nice error.
+        let owned_line = std::str::from_utf8(line).expect("utf8").to_owned();
+        ParseError {
+            position: position,
+            line: owned_line,
+            message: msg.into(),
+        }
+    }
+
+    fn eof(msg: &'static str, lexer: &Lexer) -> ParseError {
+        let pos = lexer.last_pos();
+        ParseError::new(msg, pos, lexer)
+    }
+}
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        todo!("implement this");
+        write!(
+            f,
+            "{filename}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
+            filename = self
+                .position
+                .filename
+                .as_ref()
+                .map(|x| x.as_str())
+                .unwrap_or(""),
+            lineno = self.position.line,
+            col = self.position.column,
+            msg = self.message,
+            line = self.line,
+            indent = " ".repeat(self.position.column.saturating_sub(1)),
+        )
     }
 }
 
@@ -60,9 +97,9 @@ pub struct Parser<'a, 'b> {
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
-    pub fn new(input: &[u8]) -> Parser {
+    pub fn new(input: &[u8], filename: Option<String>) -> Parser {
         Parser {
-            lexer: Lexer::new(input, None, None),
+            lexer: Lexer::new(input, filename, None),
             build_description: BuildDescription::new(),
         }
     }
@@ -90,17 +127,21 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn discard_newline(&mut self) -> Result<(), ParseError> {
-        if let Some((token, pos)) = self.lexer.next() {
-            match token {
+        self.lexer
+            .next()
+            .ok_or_else(|| ParseError::eof("Expected newline. got EOF", &self.lexer))
+            .and_then(|(token, pos)| match token {
                 Token::Newline => Ok(()),
-                _ => {
-                    eprintln!("TOK {:?}", token);
-                    todo!("Error handling")
-                }
-            }
+                _ => Err(ParseError::new(
+                    format!("Expected newline, got {}", token),
+                    pos,
+                    &self.lexer,
+                )),
+            })
+        /*
+        self.lexer.next().map_or_else(
         } else {
-            todo!("eof error");
-        }
+        }*/
     }
 
     fn read_assignment(&mut self) -> (&'a [u8], &'a [u8]) {

@@ -7,9 +7,9 @@ fn main() {
     let description = {
         // TODO: Better error.
         let input = std::fs::read(start).expect("build.ninja");
-        let result = Parser::new(&input).parse();
+        let result = Parser::new(&input, Some(start.to_owned())).parse();
         if let Err(e) = result {
-            eprintln!("{}", e);
+            eprintln!("ninjars: {}", e);
             return;
         }
         result.unwrap();
