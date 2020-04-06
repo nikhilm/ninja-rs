@@ -104,15 +104,18 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    fn expect_identifier(&mut self) -> Token<'a> {
-        if let Some((token, pos)) = self.lexer.next() {
-            match token {
-                Token::Identifier(_) => token,
-                _ => todo!("Error handling"),
-            }
-        } else {
-            todo!("Error handling");
-        }
+    fn expect_identifier(&mut self) -> Result<Token<'a>, ParseError> {
+        self.lexer
+            .next()
+            .ok_or_else(|| ParseError::eof("Expected identifier, got EOF", &self.lexer))
+            .and_then(|(token, pos)| match token {
+                Token::Identifier(_) => Ok(token),
+                _ => Err(ParseError::new(
+                    format!("Expected identifier, got {}", token),
+                    pos,
+                    &self.lexer,
+                )),
+            })
     }
 
     fn consume_indent(&mut self) -> bool {
@@ -129,7 +132,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     fn discard_newline(&mut self) -> Result<(), ParseError> {
         self.lexer
             .next()
-            .ok_or_else(|| ParseError::eof("Expected newline. got EOF", &self.lexer))
+            .ok_or_else(|| ParseError::eof("Expected newline, got EOF", &self.lexer))
             .and_then(|(token, pos)| match token {
                 Token::Newline => Ok(()),
                 _ => Err(ParseError::new(
@@ -144,8 +147,8 @@ impl<'a, 'b> Parser<'a, 'b> {
         }*/
     }
 
-    fn read_assignment(&mut self) -> (&'a [u8], &'a [u8]) {
-        let var = self.expect_identifier();
+    fn read_assignment(&mut self) -> Result<(&'a [u8], &'a [u8]), ParseError> {
+        let var = self.expect_identifier()?;
         if let Some((token, pos)) = self.lexer.next() {
             match token {
                 Token::Equals => {}
@@ -166,7 +169,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         } else {
             todo!("Error handling");
         }
-        (var.value(), value.expect("value").value())
+        Ok((var.value(), value.expect("value").value()))
     }
 
     fn token_to_string(token: Token) -> Result<String, ParseError> {
@@ -176,11 +179,11 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn parse_rule(&mut self) -> Result<(), ParseError> {
-        let identifier = self.expect_identifier();
+        let identifier = self.expect_identifier()?;
         self.discard_newline()?;
         // TODO: Do all the scoping and env stuff.
         assert!(self.consume_indent());
-        let (var, value) = self.read_assignment();
+        let (var, value) = self.read_assignment()?;
         if var != "command".as_bytes() {
             todo!("Don't know how to handle anything except command");
         }

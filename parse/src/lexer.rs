@@ -308,7 +308,9 @@ impl<'a, 'b> Lexer<'a, 'b> {
             }
             i
         } else {
-            self.line_offsets[idx + 1]
+            // Subtract 1 to exclude the newline itself.
+            // We are actually guaranteed that line_offsets[idx+1] is never 0, but lets be safe.
+            self.line_offsets[idx + 1].saturating_sub(1)
         };
 
         &self.data[start..end]
