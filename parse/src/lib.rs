@@ -8,8 +8,10 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+mod desc;
 mod lexer;
 
+use desc::*;
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
@@ -41,40 +43,6 @@ impl<'a> Env<'a> {
 
     fn lookup_rule<'b, S: Into<&'b [u8]>>(&self, name: S) -> Option<&Rule<'a>> {
         self.rules.get(name.into())
-    }
-}
-
-#[derive(Debug)]
-struct BuildEdge {
-    // The build edge is going to refer to paths in some shared patchcache, or at least a pathcache
-// owned by BuildDescription.
-
-// outputs: Vec<
-// inputs:
-// rule: ownership story
-}
-
-#[derive(Debug)]
-pub struct BuildDescription {
-    // environment: Env, // TODO
-    // TODO: If you think about it, the rules aren't really relevant beyond the parser. a build
-    // description is just a graph of BuildEdges + Path nodes because once the graph is ready, all
-    // rules simply give their properties to the edges.
-    //
-    // In addition, build descriptions have pools that do matter at execution time.
-    // rules: Vec<Rule>, // hashtable?
-    build_edges: Vec<BuildEdge>,
-    paths: ninja_paths::PathCache,
-    // defaults: Vec<...>, // TODO
-    // pools:
-}
-
-impl BuildDescription {
-    fn new() -> BuildDescription {
-        BuildDescription {
-            build_edges: Vec::new(),
-            paths: ninja_paths::PathCache::new(),
-        }
     }
 }
 
@@ -248,8 +216,10 @@ impl<'a, 'b> Parser<'a, 'b> {
             ReadInputs,
         };
 
-        let mut outputs: Vec<&[u8]> = Vec::new();
-        let mut inputs: Vec<&[u8]> = Vec::new();
+        // I'd have really liked a Vec<&[u8]> here and then converting to an owned vec at the last
+        // minute in the edge builder, but haven't figured an ergonomic way for that yet.
+        let mut outputs: Vec<Vec<u8>> = Vec::new();
+        let mut inputs: Vec<Vec<u8>> = Vec::new();
         let mut rule = None;
         let mut state = State::ReadFirstOutput;
         while let Some((token, pos)) = self.lexer.next() {
@@ -257,7 +227,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadFirstOutput => match token {
                     Token::Path(v) => {
                         eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
-                        outputs.push(v);
+                        outputs.push(v.into());
                         state = State::ReadRemainingOutputs;
                     }
                     _ => {
@@ -274,7 +244,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                             "Got another output path {}",
                             std::str::from_utf8(v).unwrap()
                         );
-                        outputs.push(v);
+                        outputs.push(v.into());
                         state = State::ReadRemainingOutputs;
                     }
                     Token::Colon => {
@@ -312,7 +282,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadInputs => match token {
                     Token::Path(v) => {
                         eprintln!("Got input path {}", std::str::from_utf8(v).unwrap());
-                        inputs.push(v);
+                        inputs.push(v.into());
                     }
                     Token::Newline => {
                         break;
@@ -330,17 +300,16 @@ impl<'a, 'b> Parser<'a, 'b> {
 
         // TODO: Read remaining lines as bindings as long as indents are encountered.
 
-        // let edge_builder = self.build_description.edge_builder();
-        // // Something like this?
-        // edge_builder
-        //     .add_outputs(outputs) // TODO: affected by top level vars
-        //     // probably eval the outputs and inputs at parse time
-        //     .add_inputs(inputs) // TODO: affected by top level vars
-        //     .use_rule(rule_name.expect("valid rule"))
-        //     .finish();
-
         // EOF is OK as long as our state machine is done.
         if state == State::ReadInputs {
+            let edge_builder = self.build_description.edge_builder();
+            // Something like this?
+            edge_builder
+                .add_outputs(outputs) // TODO: affected by top level vars
+                // probably eval the outputs and inputs at parse time
+                .add_inputs(inputs) // TODO: affected by top level vars
+                .finish(&self.env, rule.as_ref().unwrap());
+
             Ok(())
         } else {
             Err(ParseError::eof(
@@ -383,7 +352,7 @@ build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
         let mut parser = Parser::new(input.as_bytes(), None);
-        parser.parse().expect("valid parse");
+        eprintln!("{:?}", parser.parse().expect("valid parse"));
     }
 
     #[test]
