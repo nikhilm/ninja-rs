@@ -1,25 +1,55 @@
 #![feature(is_sorted)]
 #![feature(todo_macro)]
 
-use std::fmt::{Display, Formatter};
+extern crate ninja_paths;
+
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 
 mod lexer;
 
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
-struct Rule {
-    name: String,
-    command: String,
+struct Rule<'a> {
+    name: &'a [u8],
+    command: &'a [u8],
 }
 
-// TODO: Canonicalization pass
+// TODO:
 // var evaluation
-// lifetimes and graphs in Rust
+
+/// Right now a real simple container for rule lookup since we don't have anything except `command`
+/// and variable support.
+#[derive(Debug)]
+struct Env<'a> {
+    rules: HashMap<&'a [u8], Rule<'a>>,
+}
+
+impl<'a> Env<'a> {
+    fn new() -> Env<'a> {
+        Env {
+            rules: HashMap::new(),
+        }
+    }
+
+    fn add_rule(&mut self, rule: Rule<'a>) {
+        self.rules.insert(rule.name, rule);
+    }
+
+    fn lookup_rule<'b, S: Into<&'b [u8]>>(&self, name: S) -> Option<&Rule<'a>> {
+        self.rules.get(name.into())
+    }
+}
 
 #[derive(Debug)]
 struct BuildEdge {
-    // outputs: Vec<
+    // The build edge is going to refer to paths in some shared patchcache, or at least a pathcache
+// owned by BuildDescription.
+
+// outputs: Vec<
 // inputs:
 // rule: ownership story
 }
@@ -27,21 +57,24 @@ struct BuildEdge {
 #[derive(Debug)]
 pub struct BuildDescription {
     // environment: Env, // TODO
-    rules: Vec<Rule>, // hashtable?
+    // TODO: If you think about it, the rules aren't really relevant beyond the parser. a build
+    // description is just a graph of BuildEdges + Path nodes because once the graph is ready, all
+    // rules simply give their properties to the edges.
+    //
+    // In addition, build descriptions have pools that do matter at execution time.
+    // rules: Vec<Rule>, // hashtable?
     build_edges: Vec<BuildEdge>,
+    paths: ninja_paths::PathCache,
     // defaults: Vec<...>, // TODO
+    // pools:
 }
 
 impl BuildDescription {
     fn new() -> BuildDescription {
         BuildDescription {
-            rules: Vec::new(),
             build_edges: Vec::new(),
+            paths: ninja_paths::PathCache::new(),
         }
-    }
-
-    fn add_rule(&mut self, rule: Rule) {
-        self.rules.push(rule);
     }
 }
 
@@ -93,6 +126,7 @@ impl Display for ParseError {
 
 pub struct Parser<'a, 'b> {
     lexer: Lexer<'a, 'b>,
+    env: Env<'a>,
     build_description: BuildDescription,
 }
 
@@ -100,6 +134,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     pub fn new(input: &[u8], filename: Option<String>) -> Parser {
         Parser {
             lexer: Lexer::new(input, filename, None),
+            env: Env::new(),
             build_description: BuildDescription::new(),
         }
     }
@@ -196,9 +231,9 @@ impl<'a, 'b> Parser<'a, 'b> {
         if var != "command".as_bytes() {
             todo!("Don't know how to handle anything except command");
         }
-        self.build_description.add_rule(Rule {
-            name: Parser::token_to_string(identifier)?,
-            command: std::str::from_utf8(value).expect("utf8").to_owned(),
+        self.env.add_rule(Rule {
+            name: identifier.value(),
+            command: value,
         });
         Ok(())
     }
@@ -213,12 +248,16 @@ impl<'a, 'b> Parser<'a, 'b> {
             ReadInputs,
         };
 
+        let mut outputs: Vec<&[u8]> = Vec::new();
+        let mut inputs: Vec<&[u8]> = Vec::new();
+        let mut rule = None;
         let mut state = State::ReadFirstOutput;
         while let Some((token, pos)) = self.lexer.next() {
             match state {
                 State::ReadFirstOutput => match token {
                     Token::Path(v) => {
                         eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
+                        outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
                     _ => {
@@ -235,6 +274,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                             "Got another output path {}",
                             std::str::from_utf8(v).unwrap()
                         );
+                        outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
                     Token::Colon => {
@@ -251,6 +291,14 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadRule => match token {
                     Token::Identifier(v) => {
                         eprintln!("Got rule name {}", std::str::from_utf8(v).unwrap());
+                        rule = self.env.lookup_rule(v);
+                        if rule.is_none() {
+                            return Err(ParseError::new(
+                                format!("Unknown rule {}", token),
+                                pos,
+                                &self.lexer,
+                            ));
+                        }
                         state = State::ReadInputs;
                     }
                     _ => {
@@ -264,6 +312,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadInputs => match token {
                     Token::Path(v) => {
                         eprintln!("Got input path {}", std::str::from_utf8(v).unwrap());
+                        inputs.push(v);
                     }
                     Token::Newline => {
                         break;
@@ -280,6 +329,15 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
 
         // TODO: Read remaining lines as bindings as long as indents are encountered.
+
+        // let edge_builder = self.build_description.edge_builder();
+        // // Something like this?
+        // edge_builder
+        //     .add_outputs(outputs) // TODO: affected by top level vars
+        //     // probably eval the outputs and inputs at parse time
+        //     .add_inputs(inputs) // TODO: affected by top level vars
+        //     .use_rule(rule_name.expect("valid rule"))
+        //     .finish();
 
         // EOF is OK as long as our state machine is done.
         if state == State::ReadInputs {
@@ -383,12 +441,19 @@ command"#,
             "build foo.o foo.p foo.q: touch",
             "build foo.o foo.p: touch inp1 inp2",
             r#"build foo.o foo.p: touch inp1 inp2
-build bar.o: compile inp3"#,
+build bar.o: touch inp3"#,
             r#"build foo.o foo.p: touch inp1 inp2
 rule other
   command = gcc"#,
         ] {
-            let mut parser = Parser::new(input.as_bytes(), None);
+            let with_rule = format!(
+                r#"
+rule touch
+  command = touch
+{}"#,
+                input
+            );
+            let mut parser = Parser::new(with_rule.as_bytes(), None);
             let _ = parser.parse().expect("valid parse");
         }
     }

@@ -15,7 +15,7 @@ fn main() {
         result.unwrap();
     };
     // let state = BuildLog::read();
-    // let rebuilder = Rebuilder::new(state);
+    // let rebuilder = Rebuilder::new(/*state*/);
     // let scheduler = Scheduler::new(description, rebuilder);
     // scheduler.run();
     // scheduler + rebuilder creation

@@ -10,4 +10,11 @@ dependencies = [
 [[package]]
 name = "ninja-parse"
 version = "0.1.0"
+dependencies = [
+ "ninja-paths 0.1.0",
+]
+
+[[package]]
+name = "ninja-paths"
+version = "0.1.0"
 
