@@ -8,9 +8,9 @@ pub type Command = Vec<u8>;
 pub struct BuildEdge {
     // The build edge is going to refer to paths in some shared patchcache, or at least a pathcache
     // owned by BuildDescription.
-    outputs: Outputs,
-    inputs: Inputs,
-    command: Command,
+    pub outputs: Outputs,
+    pub inputs: Inputs,
+    pub command: Command,
     // rule: ownership story
 }
 
@@ -33,8 +33,8 @@ pub struct BuildDescription {
     //
     // In addition, build descriptions have pools that do matter at execution time.
     // rules: Vec<Rule>, // hashtable?
-    build_edges: Vec<BuildEdge>,
-    paths: PathCache,
+    pub edges: Vec<BuildEdge>,
+    pub paths: PathCache,
     // defaults: Vec<...>, // TODO
     // pools:
 }
@@ -42,7 +42,7 @@ pub struct BuildDescription {
 impl BuildDescription {
     pub fn new(build_edges: Vec<BuildEdge>) -> BuildDescription {
         BuildDescription {
-            build_edges: build_edges,
+            edges: build_edges,
             paths: ninja_paths::PathCache::new(),
         }
     }
