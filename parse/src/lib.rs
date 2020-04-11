@@ -14,7 +14,7 @@ use ninja_desc::BuildDescription;
 mod desc;
 mod lexer;
 
-use desc::{DescriptionBuilder, EdgeBuilder};
+use desc::{DescriptionBuilder};
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
@@ -322,7 +322,7 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     pub fn parse(mut self) -> Result<BuildDescription, ParseError> {
-        while let Some((token, pos)) = self.lexer.next() {
+        while let Some((token, _pos)) = self.lexer.next() {
             match token {
                 Token::Rule => {
                     self.parse_rule()?;
@@ -353,14 +353,14 @@ rule cc
 build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
-        let mut parser = Parser::new(input.as_bytes(), None);
+        let parser = Parser::new(input.as_bytes(), None);
         eprintln!("{:?}", parser.parse().expect("valid parse"));
     }
 
     #[test]
     fn test_rule_identifier_fail() {
         for (input, expected_col) in &[("rule cc:", 8), ("rule", 5), ("rule\n", 5)] {
-            let mut parser = Parser::new(input.as_bytes(), None);
+            let parser = Parser::new(input.as_bytes(), None);
             let err = parser.parse().unwrap_err();
             assert_eq!(err.position.line, 1);
             assert_eq!(err.position.column, *expected_col);
@@ -396,7 +396,7 @@ command"#,
                 "literal",
             ),
         ] {
-            let mut parser = Parser::new(input.as_bytes(), None);
+            let parser = Parser::new(input.as_bytes(), None);
             let err = parser.parse().unwrap_err();
             assert_eq!(err.position.line, 2);
             assert_eq!(err.position.column, *expected_col);
@@ -424,7 +424,7 @@ rule touch
 {}"#,
                 input
             );
-            let mut parser = Parser::new(with_rule.as_bytes(), None);
+            let parser = Parser::new(with_rule.as_bytes(), None);
             let _ = parser.parse().expect("valid parse");
         }
     }
@@ -439,7 +439,7 @@ rule touch
             "build foo.o touch", // no colon
             "build foo.o: ", // no rule
         ] {
-            let mut parser = Parser::new(input.as_bytes(), None);
+            let parser = Parser::new(input.as_bytes(), None);
             let _ = parser.parse().expect_err("parse should fail");
         }
     }

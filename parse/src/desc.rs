@@ -1,5 +1,5 @@
 use super::{Env, Rule};
-use ninja_desc::{BuildDescription, BuildEdge, Command, Inputs, Outputs};
+use ninja_desc::{BuildDescription, BuildEdge, Inputs, Outputs};
 
 pub struct DescriptionBuilder {
     build_edges: Vec<BuildEdge>,
@@ -46,7 +46,7 @@ impl<'d> EdgeBuilder<'d> {
         self
     }
 
-    pub(crate) fn finish(mut self, _: &Env, rule: &Rule) {
+    pub(crate) fn finish(self, _: &Env, rule: &Rule) {
         // TODO: Other evaluations.
         self.desc.build_edges.push(BuildEdge::new(
             self.outputs.expect("outputs populated"),

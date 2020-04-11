@@ -529,12 +529,12 @@ impl<'a, 'b> Iterator for Lexer<'a, 'b> {
 
 #[cfg(test)]
 mod test {
-    use super::{Lexer, Pos, Position, Token, TokenPos};
+    use super::{Lexer, Pos, Position, Token};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
     fn parse_and_slice(input: &str) -> Vec<Token> {
         let lexer = Lexer::new(input.as_bytes(), None, None);
-        lexer.map(|(token, pos)| token).collect::<Vec<Token>>()
+        lexer.map(|(token, _pos)| token).collect::<Vec<Token>>()
     }
 
     fn readable_byte_compare(actual: &[u8], expected: &str) {
@@ -578,7 +578,7 @@ mod test {
     fn test_error_triggered() {
         // This interface is not very ergonomic...
         let mut lexer = Lexer::new("pool )".as_bytes(), None, None);
-        for token in &mut lexer {}
+        for _token in &mut lexer {}
         assert_eq!(lexer.error_count, 1);
     }
 
@@ -586,7 +586,7 @@ mod test {
     fn test_error_handler() {
         let mut handler_called = 0;
         {
-            let handler = |pos: Position, err: &str| {
+            let handler = |_pos: Position, _err: &str| {
                 // Now this would need a ref to the lexer again to translate the pos to a Position.
                 // Which, again, needs a better interface.
                 // fn error() already borrows as mutable, so it can't pass a reference here.
@@ -595,7 +595,7 @@ mod test {
 
             // This interface is not very ergonomic...
             let mut lexer = Lexer::new("pool )".as_bytes(), None, Some(Box::new(handler)));
-            for token in &mut lexer {}
+            for _token in &mut lexer {}
             assert_eq!(lexer.error_count, 1);
         }
         assert_eq!(handler_called, 1);
@@ -621,7 +621,7 @@ pool noodles"#;
         ];
 
         let mut lexer = Lexer::new(input.as_bytes(), None, None);
-        for token in &mut lexer {}
+        for _token in &mut lexer {}
         for (pos, expected) in table {
             assert_eq!(lexer.to_position(Pos(*pos)), *expected);
         }
