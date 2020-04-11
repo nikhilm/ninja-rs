@@ -1,6 +1,7 @@
 #![feature(is_sorted)]
 #![feature(todo_macro)]
 
+extern crate ninja_desc;
 extern crate ninja_paths;
 
 use std::{
@@ -8,10 +9,12 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use ninja_desc::BuildDescription;
+
 mod desc;
 mod lexer;
 
-use desc::*;
+use desc::{DescriptionBuilder, EdgeBuilder};
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
@@ -95,7 +98,7 @@ impl Display for ParseError {
 pub struct Parser<'a, 'b> {
     lexer: Lexer<'a, 'b>,
     env: Env<'a>,
-    build_description: BuildDescription,
+    builder: DescriptionBuilder,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -103,7 +106,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         Parser {
             lexer: Lexer::new(input, filename, None),
             env: Env::new(),
-            build_description: BuildDescription::new(),
+            builder: DescriptionBuilder::new(),
         }
     }
 
@@ -302,9 +305,8 @@ impl<'a, 'b> Parser<'a, 'b> {
 
         // EOF is OK as long as our state machine is done.
         if state == State::ReadInputs {
-            let edge_builder = self.build_description.edge_builder();
-            // Something like this?
-            edge_builder
+            self.builder
+                .new_edge()
                 .add_outputs(outputs) // TODO: affected by top level vars
                 // probably eval the outputs and inputs at parse time
                 .add_inputs(inputs) // TODO: affected by top level vars
@@ -334,7 +336,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 }
             }
         }
-        Ok(self.build_description)
+        Ok(self.builder.finish())
     }
 }
 

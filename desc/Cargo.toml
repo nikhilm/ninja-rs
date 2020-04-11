@@ -1,11 +1,11 @@
 [package]
-name = "ninja-parse"
+name = "ninja-desc"
 version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+# TODO: Move build description somewhere nicer.
 ninja-paths = { path = "../paths" }
-ninja-desc = { path = "../desc" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

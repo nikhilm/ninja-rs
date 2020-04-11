@@ -4,13 +4,29 @@
 name = "ninja"
 version = "0.1.0"
 dependencies = [
+ "ninja-build 0.1.0",
  "ninja-parse 0.1.0",
+]
+
+[[package]]
+name = "ninja-build"
+version = "0.1.0"
+dependencies = [
+ "ninja-desc 0.1.0",
+]
+
+[[package]]
+name = "ninja-desc"
+version = "0.1.0"
+dependencies = [
+ "ninja-paths 0.1.0",
 ]
 
 [[package]]
 name = "ninja-parse"
 version = "0.1.0"
 dependencies = [
+ "ninja-desc 0.1.0",
  "ninja-paths 0.1.0",
 ]
 
