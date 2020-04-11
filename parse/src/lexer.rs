@@ -22,14 +22,6 @@ impl Position {
             column: column,
         }
     }
-
-    fn untitled(line: usize, column: usize) -> Position {
-        Position {
-            filename: None,
-            line: line,
-            column: column,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +77,7 @@ impl<'a> Display for Token<'a> {
 }
 
 impl<'a> Token<'a> {
+    #[cfg(test)]
     pub fn is_identifier(&self) -> bool {
         match *self {
             Token::Identifier(_) => true,
@@ -92,6 +85,7 @@ impl<'a> Token<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn is_path(&self) -> bool {
         match *self {
             Token::Path(_) => true,
@@ -99,6 +93,7 @@ impl<'a> Token<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn is_literal(&self) -> bool {
         match *self {
             Token::Literal(_) => true,

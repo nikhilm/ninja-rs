@@ -1,5 +1,4 @@
 #![feature(is_sorted)]
-#![feature(todo_macro)]
 
 extern crate ninja_desc;
 extern crate ninja_paths;
@@ -14,7 +13,7 @@ use ninja_desc::BuildDescription;
 mod desc;
 mod lexer;
 
-use desc::{DescriptionBuilder};
+use desc::DescriptionBuilder;
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
@@ -185,12 +184,6 @@ impl<'a, 'b> Parser<'a, 'b> {
         self.discard_assignment()?;
         let value = self.expect_value()?;
         Ok((var.value(), value.value()))
-    }
-
-    fn token_to_string(token: Token) -> Result<String, ParseError> {
-        // TODO: What we would really like is to convert utf8 errors into a position in the token
-        // stream and generate a nice error.
-        Ok(std::str::from_utf8(token.value()).expect("utf8").to_owned())
     }
 
     fn parse_rule(&mut self) -> Result<(), ParseError> {
