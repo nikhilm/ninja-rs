@@ -1,7 +1,9 @@
-use std::{
-    collections::HashMap,
-};
+use std::collections::{hash_map::Entry, HashMap};
 
+pub type PathRef = usize;
+
+// Our "Build" paper abstraction breaks down here as we start talking about paths, so this is an
+// area to revisit.
 #[derive(Debug)]
 struct PathNode {}
 
@@ -9,7 +11,13 @@ struct PathNode {}
 pub struct PathCache {
     nodes: Vec<PathNode>,
     // Not clear yet if the key should be &[u8] or OsString.
-    map: HashMap<Vec<u8>, usize>,
+    map: HashMap<Vec<u8>, PathRef>,
+}
+
+// Rough translation of HashMap entry API to be more ergonomic.
+pub enum InsertResult {
+    AlreadyExists(PathRef),
+    Inserted(PathRef),
 }
 
 // We want access (entries) from PathCache to be tied to the path cache's lifetime. in addition,
@@ -31,6 +39,26 @@ impl PathCache {
             nodes: vec![],
             map: HashMap::new(),
         }
+    }
+
+    // The same path ends up returning a re-used noderef.
+    // the only thing that needs to check for collisions is the parser, where it may want to
+    // complain for output nodes
+    pub fn insert<P: Into<Vec<u8>>>(&mut self, path: P) -> InsertResult {
+        // TODO: canonicalization
+        match self.map.entry(path.into()) {
+            Entry::Occupied(e) => InsertResult::AlreadyExists(*e.get()),
+            Entry::Vacant(e) => {
+                self.nodes.push(PathNode {});
+                let idx = self.nodes.len() - 1;
+                e.insert(idx);
+                InsertResult::Inserted(idx)
+            }
+        }
+    }
+
+    pub fn iter_refs(&self) -> std::ops::Range<usize> {
+        (0..self.nodes.len())
     }
 
     // Should this in-place edit?

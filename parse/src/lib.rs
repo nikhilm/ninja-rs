@@ -1,7 +1,6 @@
 #![feature(is_sorted)]
 
 extern crate ninja_desc;
-extern crate ninja_paths;
 
 use std::{
     collections::HashMap,
@@ -218,7 +217,11 @@ impl<'a, 'b> Parser<'a, 'b> {
         let mut inputs: Vec<Vec<u8>> = Vec::new();
         let mut rule = None;
         let mut state = State::ReadFirstOutput;
+        let mut first_line_pos = None;
         while let Some((token, pos)) = self.lexer.next() {
+            if first_line_pos.is_none() {
+                first_line_pos = Some(pos);
+            }
             match state {
                 State::ReadFirstOutput => match token {
                     Token::Path(v) => {
@@ -298,14 +301,26 @@ impl<'a, 'b> Parser<'a, 'b> {
 
         // EOF is OK as long as our state machine is done.
         if state == State::ReadInputs {
-            self.builder
+            let result = self
+                .builder
                 .new_edge()
                 .add_outputs(outputs) // TODO: affected by top level vars
                 // probably eval the outputs and inputs at parse time
                 .add_inputs(inputs) // TODO: affected by top level vars
                 .finish(&self.env, rule.as_ref().unwrap());
 
-            Ok(())
+            if let Err(conflict) = result {
+                Err(ParseError::new(
+                    format!(
+                        "Same output {} produced by multiple build edges",
+                        std::str::from_utf8(&conflict.0).expect("utf8"),
+                    ),
+                    first_line_pos.expect("a pos"),
+                    &self.lexer,
+                ))
+            } else {
+                Ok(())
+            }
         } else {
             Err(ParseError::eof(
                 "unexpected EOF in the middle of a build edge",
