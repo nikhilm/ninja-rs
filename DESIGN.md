@@ -47,3 +47,24 @@ Any way, the `reachable` function in the paper can be obtained by going over our
 So this part seems pretty reasonable once we have the path cache stuff implemented. there are some sharing issues and Rc that might affect this.
 
 Remember to add the build.ninja file itself to the graph. It isn't clear what is a more elegant solution. adding build.ninja to the graph, or having it as one of the checks in the task's up-to-date check where more checks (like hashes) will go in the future.
+
+### Reconciling the Task abstraction with ninja's build edges
+
+As discussed in section 6.7 of the paper, supporting multiple outputs requires that the "key" is a multi-value pair and materializing (or getting the value of a key) requires building all of them. Since ninja build edges do declare multiple outputs, we need something like this. that also brings the question of where to store edge things like the command.
+
+In the paper, a task has the implementation details (which describes how to bring the key up to date), a key, which describes what thing it brings up to date and a value which is a value produced. We don't actually need to bring the "value" (file contents) into the build system. what is important is the value on disk is updated when a task is executed. This means our Task's (i.e a disk-backed ninja implementation) would have a type of Unit.
+
+The DAG between inputs and outputs doesn't strictly need to carry build information (Tasks) itself, as long as the rebuilder/scheduler can go from a required output to the task that will produce it. If we use petgraph we would stick it in the Node and Edge info as structs.
+
+So, the parser would maintain a list of inputs and outputs, particularly so it can do duplicate output detection, but after that the conversion to a BuildDescription would add a multitude of outputs to a single DAG node. That does bring up the problem of finding zero-incoming-edges and so on, as, strictly speaking, a ninja user can request only one target out of the many for a build edge, and then one would have to go search through the nodes. similarly, if we want to mark edges as dirty as nodes become dirty, we want to be able to query outgoing edges on a per-file basis. So we have some hybrid structure where "the same" edges go between multiple inputs and outputs, and for that we may want to do some interesting sharing over PetGraph or need our own graph.
+
+Also, I'm not really convinced that ninja is just topological sort any more. Actually, it _is_ topo-sorting but not doing a progressive "ok, find nodes, run a topo-sort, now add the list to the plan and start executing it". Instead, as Plan::AddTarget is called, it ends up running a DFS on the dependencies and add the edges to the ready_ list, which is what topo-sort is (post-order traversal). Then the plan starts executing it. I don't know why they wouldn't just call it topo-sort in the code! So the thing they are doing differently is rather than having a key (Node) to task (Edge) mapping that is accessed every time, they just add tasks to the topo-sort list and the task knows its inputs and outputs as expected.
+
+It is possible that our insistence on path caching so early in the design is complicating it.
+In addition, since commands are unlikely to be shared between edges, there isn't really a command pool/sharing needed.
+
+In addition, we may only want to create an actual topo-sorted thing only for nodes we deem necessary as being reachable from the targets we want. This can be done by constructing the full graph and then simply only adding things to the scheduler that are needed. So the scheduler sees a sequence of nodes or edges that don't necessarily reflect the entire graph.
+
+## Questions of concurrency
+
+Since we eventually want concurrent job execution, we need to make sure our designs don't lock us into a space where supporting something like that is difficult.
