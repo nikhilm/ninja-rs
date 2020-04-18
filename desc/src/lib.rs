@@ -1,39 +1,20 @@
 extern crate ninja_paths;
+extern crate petgraph;
+
+pub use petgraph::graph::{EdgeIndex, EdgeReference, NodeIndex};
+use petgraph::{Direction, Graph};
+use std::collections::{hash_map::Entry, HashMap};
+
 use ninja_paths::{PathCache, PathRef};
 
+pub type Command = Vec<u8>;
 pub type Outputs = Vec<Vec<u8>>;
 pub type Inputs = Vec<Vec<u8>>;
-pub type Command = Vec<u8>;
-
-// Graph bits that shouldn't be exposed.
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub struct NodeIndex(usize);
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub struct EdgeIndex(usize);
-
-impl NodeIndex {
-    fn index(&self) -> usize {
-        self.0
-    }
-}
-
-impl EdgeIndex {
-    fn index(&self) -> usize {
-        self.0
-    }
-}
+pub type Path = Vec<u8>;
 
 #[derive(Debug)]
 struct NodeData {
     path: PathRef,
-    // TODO: share this among nodes
-    pub command: Option<Command>,
-
-    // Needed to efficiently find dependencies, reachability and topo-sort.
-    first_outgoing_edge: Option<EdgeIndex>,
-    // Needed to allow efficiently finding targets with no incoming edges, so we know where to
-    // start building from on a default invocation.
-    first_incoming_edge: Option<EdgeIndex>,
 }
 
 #[derive(Debug)]
@@ -44,13 +25,8 @@ pub struct EdgeData {
     // we may want to share certain things like commands, which after evaluation may end up being
     // the same.
 
-    // Graph bits.
-    // The source of the edge is implicit in the graph.
-    target: NodeIndex,
-    // Next outgoing edge from implicit source.
-    next_outgoing_edge: Option<EdgeIndex>,
-    // Next incoming edge to target.
-    next_incoming_edge: Option<EdgeIndex>,
+    // TODO: share this among nodes
+    pub command: Command,
 }
 
 #[derive(Debug)]
@@ -58,141 +34,100 @@ pub struct BuildDescription {
     // we will actually need a few alternative views on this to do things like reachability and
     // topological sorting, so not sure if this should be augmented with more details like having
     // nodes maintain incoming/outgoing edge counts and references to edges.
-    paths: PathCache,
     // defaults: Vec<...>, // TODO
     // pools:
-
-    // Graph bits:
-    nodes: Vec<NodeData>,
-    edges: Vec<EdgeData>,
-}
-
-// shenanigans to convince the compiler the regions are non-overlapping.
-fn index_twice(
-    slice: &mut [NodeData],
-    a: NodeIndex,
-    b: NodeIndex,
-) -> (&mut NodeData, &mut NodeData) {
-    assert!(
-        a.index() != b.index(),
-        "Self-edges are not allowed in a ninja graph!"
-    );
-    let smaller = std::cmp::min(a.index(), b.index());
-    let split_at = smaller + 1;
-    let (head, tail) = slice.split_at_mut(split_at);
-    let smaller_ref = &mut head[smaller];
-
-    // Return in the order expected by the caller.
-    if smaller == a.index() {
-        (smaller_ref, &mut tail[b.index() - split_at])
-    } else {
-        assert_eq!(smaller, b.index());
-        (&mut tail[a.index() - split_at], smaller_ref)
-    }
+    path_cache: PathCache,
+    path_to_node: HashMap<PathRef, NodeIndex>,
+    // The graph is directed with edges going in the same direction as build edges:
+    // <input> ---> <output>
+    //               ^
+    // <input2> -----|
+    //               v
+    //              <output2>
+    // <input3> -----^
+    graph: Graph<NodeData, EdgeData>,
 }
 
 impl BuildDescription {
-    pub fn new(path_cache: PathCache) -> BuildDescription {
-        let node_cap = path_cache.iter_refs().end;
+    pub fn new() -> BuildDescription {
         BuildDescription {
-            // edges: build_edges,
-            paths: path_cache,
-
-            nodes: Vec::with_capacity(node_cap),
-            edges: Vec::new(),
+            path_cache: PathCache::new(),
+            path_to_node: HashMap::new(),
+            graph: Graph::new(),
         }
     }
 
-    // The invariant to preserve is that the PathRef and NodeIndex have to be the same!
-    pub fn add_node(&mut self, path: PathRef) -> NodeIndex {
-        assert_eq!(
-            self.nodes.len(),
-            path,
-            "Path and node index must be the same!"
-        );
-        let node_index = NodeIndex(self.nodes.len());
-        let node = NodeData {
-            path: path,
-            command: None,
-            first_outgoing_edge: None,
-            first_incoming_edge: None,
-        };
-        self.nodes.push(node);
-        node_index
-    }
+    pub fn add_edge(&mut self, inputs: Inputs, outputs: Outputs, command: Command) {
+        // TODO: Some kind of command sharing and synchronization.
 
-    pub fn add_edge(&mut self, source: NodeIndex, dest: NodeIndex) -> EdgeIndex {
-        assert!(
-            source.index() != dest.index(),
-            "Self-edges are not allowed in a ninja graph!"
-        );
-        let edge_index = EdgeIndex(self.edges.len());
-        let (mut source_data, mut dest_data) = index_twice(&mut self.nodes, source, dest);
-        let edge = EdgeData {
-            target: dest,
-            next_outgoing_edge: source_data.first_outgoing_edge,
-            next_incoming_edge: dest_data.first_incoming_edge,
-        };
-        source_data.first_outgoing_edge = Some(edge_index);
-        dest_data.first_incoming_edge = Some(edge_index);
+        let input_path_refs: Vec<PathRef> = inputs
+            .into_iter()
+            .map(|input| self.path_cache.insert_and_get(input))
+            .collect();
+        let output_path_refs: Vec<PathRef> = outputs
+            .into_iter()
+            .map(|output| self.path_cache.insert_and_get(output))
+            .collect();
 
-        self.edges.push(edge);
-        edge_index
-    }
+        let input_node_indices: Vec<NodeIndex> = input_path_refs
+            .into_iter()
+            .map(
+                |input_path_ref| match self.path_to_node.entry(input_path_ref) {
+                    Entry::Occupied(e) => *e.get(),
+                    Entry::Vacant(e) => {
+                        let node_index = self.graph.add_node(NodeData {
+                            path: input_path_ref,
+                        });
+                        e.insert(node_index);
+                        node_index
+                    }
+                },
+            )
+            .collect();
+        let output_node_indices: Vec<NodeIndex> = output_path_refs
+            .into_iter()
+            .map(
+                |output_path_ref| match self.path_to_node.entry(output_path_ref) {
+                    Entry::Occupied(e) => *e.get(),
+                    Entry::Vacant(e) => {
+                        let node_index = self.graph.add_node(NodeData {
+                            path: output_path_ref,
+                        });
+                        e.insert(node_index);
+                        node_index
+                    }
+                },
+            )
+            .collect();
 
-    pub fn add_command(&mut self, source: NodeIndex, cmd: Command) {
-        // better error handling.
-        let mut node_data = &mut self.nodes[source.index()];
-        assert!(node_data.command.is_none());
-        node_data.command.replace(cmd);
-    }
-
-    pub fn command(&self, source: NodeIndex) -> Option<&Command> {
-        self.nodes[source.index()].command.as_ref()
-    }
-
-    pub fn nodes_with_no_incoming_edges(&self) -> impl std::iter::Iterator<Item = NodeIndex> + '_ {
-        self.nodes
-            .iter()
-            .enumerate()
-            .filter(|(idx, node)| node.first_incoming_edge.is_none())
-            .map(|(idx, node)| NodeIndex(idx))
-    }
-
-    // May finally be time to use the petgraph crate.
-    // TODO: Return some wrapper instead of EdgeIndex
-    pub fn direct_dependencies(
-        &self,
-        source: NodeIndex,
-    ) -> impl std::iter::Iterator<Item = NodeIndex> + '_ {
-        let first = self.nodes[source.index()].first_outgoing_edge;
-        Successors {
-            graph: self,
-            current_edge_index: first,
-        }
-    }
-
-    pub fn target(&self, edge: EdgeIndex) -> NodeIndex {
-        self.edges[edge.index()].target
-    }
-}
-
-pub struct Successors<'graph> {
-    graph: &'graph BuildDescription,
-    current_edge_index: Option<EdgeIndex>,
-}
-
-impl<'graph> Iterator for Successors<'graph> {
-    type Item = NodeIndex;
-
-    fn next(&mut self) -> Option<NodeIndex> {
-        match self.current_edge_index {
-            None => None,
-            Some(edge_num) => {
-                let edge = &self.graph.edges[edge_num.index()];
-                self.current_edge_index = edge.next_outgoing_edge;
-                Some(edge.target)
+        for input_index in input_node_indices {
+            for output_index in &output_node_indices {
+                self.graph.add_edge(
+                    input_index,
+                    *output_index,
+                    EdgeData {
+                        command: command.clone(),
+                    },
+                );
             }
         }
+    }
+
+    pub fn roots(&self) -> impl Iterator<Item = NodeIndex> + '_ {
+        self.graph.externals(Direction::Outgoing)
+    }
+
+    pub fn dependencies(&self, of: NodeIndex) -> impl Iterator<Item = NodeIndex> + '_ {
+        self.graph.neighbors_directed(of, Direction::Incoming)
+    }
+
+    pub fn command(&self, target: NodeIndex) -> Option<&Command> {
+        self.input_edge(target).map(|e| &e.weight().command)
+    }
+
+    fn input_edge(&self, target: NodeIndex) -> Option<EdgeReference<'_, EdgeData>> {
+        self.graph
+            .edges_directed(target, Direction::Incoming)
+            .next()
     }
 }

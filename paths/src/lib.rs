@@ -57,8 +57,11 @@ impl PathCache {
         }
     }
 
-    pub fn iter_refs(&self) -> std::ops::Range<usize> {
-        (0..self.nodes.len())
+    pub fn insert_and_get<P: Into<Vec<u8>>>(&mut self, path: P) -> PathRef {
+        match self.insert(path) {
+            InsertResult::AlreadyExists(r) => r,
+            InsertResult::Inserted(r) => r,
+        }
     }
 
     // Should this in-place edit?

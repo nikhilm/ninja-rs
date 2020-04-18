@@ -28,7 +28,7 @@ impl Scheduler {
         // Really dumb scheduler
         // No topo sort, no "end" finding
         // No dependency resolution. just run one edge.
-        for idx in self.desc.nodes_with_no_incoming_edges() {
+        for idx in self.desc.roots() {
             self.rebuilder.build(idx);
         }
     }
@@ -53,7 +53,10 @@ impl Rebuilder {
         // date.
 
         // Bring dependencies up to date.
-        for dep in self.desc.direct_dependencies(target) {
+        // This is effectively a suspending scheduler, so we shouldn't use this model right now.
+        // The other broken-ness here is that commands do need to be tagged to edges to prevent
+        // rebuilds... or do they?
+        for dep in self.desc.dependencies(target) {
             self.build(dep);
         }
 
