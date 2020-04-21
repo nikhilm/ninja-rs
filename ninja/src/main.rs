@@ -1,14 +1,14 @@
 extern crate ninja_build;
 extern crate ninja_parse;
 
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use ninja_build::{BuildLog, Rebuilder, Scheduler};
 use ninja_parse::Parser;
 
 fn main() {
     let start = "build.ninja";
-    let description = Rc::new({
+    let description = Rc::new(RefCell::new({
         // TODO: Better error.
         let input = std::fs::read(start).expect("build.ninja");
         let result = Parser::new(&input, Some(start.to_owned())).parse();
@@ -17,7 +17,7 @@ fn main() {
             return;
         }
         result.unwrap()
-    });
+    }));
     let state = BuildLog::read();
     // sigh! sharing the description.
     let rebuilder = Rebuilder::new(description.clone());

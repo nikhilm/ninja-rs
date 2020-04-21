@@ -5,7 +5,9 @@ pub type PathRef = usize;
 // Our "Build" paper abstraction breaks down here as we start talking about paths, so this is an
 // area to revisit.
 #[derive(Debug)]
-struct PathNode {}
+struct PathNode {
+    path: Vec<u8>,
+}
 
 #[derive(Debug)]
 pub struct PathCache {
@@ -46,10 +48,13 @@ impl PathCache {
     // complain for output nodes
     pub fn insert<P: Into<Vec<u8>>>(&mut self, path: P) -> InsertResult {
         // TODO: canonicalization
-        match self.map.entry(path.into()) {
+        // TODO: Sucks to clone, particularly if we hit the occupied case.
+        let p = path.into();
+        let clone = p.clone();
+        match self.map.entry(p) {
             Entry::Occupied(e) => InsertResult::AlreadyExists(*e.get()),
             Entry::Vacant(e) => {
-                self.nodes.push(PathNode {});
+                self.nodes.push(PathNode { path: clone });
                 let idx = self.nodes.len() - 1;
                 e.insert(idx);
                 InsertResult::Inserted(idx)
@@ -62,6 +67,10 @@ impl PathCache {
             InsertResult::AlreadyExists(r) => r,
             InsertResult::Inserted(r) => r,
         }
+    }
+
+    pub fn get(&self, rf: PathRef) -> &[u8] {
+        &self.nodes[rf].path
     }
 
     // Should this in-place edit?

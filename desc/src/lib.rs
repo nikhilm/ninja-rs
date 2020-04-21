@@ -1,6 +1,8 @@
 extern crate ninja_paths;
 extern crate petgraph;
 
+use std::{ffi::OsStr, fs::metadata, os::unix::ffi::OsStrExt, time::SystemTime};
+
 pub use petgraph::graph::{EdgeIndex, EdgeReference, NodeIndex};
 use petgraph::{Direction, Graph};
 use std::collections::{hash_map::Entry, HashMap};
@@ -12,9 +14,46 @@ pub type Outputs = Vec<Vec<u8>>;
 pub type Inputs = Vec<Vec<u8>>;
 pub type Path = Vec<u8>;
 
+#[derive(Debug, Clone, Copy)]
+enum MTime {
+    Unknown,
+    DoesNotExist,
+    Is(SystemTime),
+}
+
 #[derive(Debug)]
 struct NodeData {
-    path: PathRef,
+    path: Vec<u8>,
+    mtime: MTime,
+}
+
+impl NodeData {
+    pub fn restat(&mut self) -> MTime {
+        // TODO: Disk interface.
+        let path: &OsStr = OsStrExt::from_bytes(&self.path);
+        match metadata(path) {
+            Ok(metadata) => {
+                self.mtime = MTime::Is(
+                    metadata
+                        .modified()
+                        .expect("mtime available on platforms we support"),
+                );
+            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    self.mtime = MTime::DoesNotExist;
+                }
+                _ => {
+                    todo!("handle other errors");
+                }
+            },
+        }
+        self.last_modified()
+    }
+
+    pub fn last_modified(&self) -> MTime {
+        self.mtime
+    }
 }
 
 #[derive(Debug)]
@@ -48,6 +87,12 @@ pub struct BuildDescription {
     graph: Graph<NodeData, EdgeData>,
 }
 
+#[derive(PartialEq, Eq)]
+enum Mark {
+    Temporary,
+    Permanent,
+}
+
 impl BuildDescription {
     pub fn new() -> BuildDescription {
         BuildDescription {
@@ -76,7 +121,8 @@ impl BuildDescription {
                     Entry::Occupied(e) => *e.get(),
                     Entry::Vacant(e) => {
                         let node_index = self.graph.add_node(NodeData {
-                            path: input_path_ref,
+                            path: self.path_cache.get(input_path_ref).clone().to_vec(),
+                            mtime: MTime::Unknown,
                         });
                         e.insert(node_index);
                         node_index
@@ -91,7 +137,8 @@ impl BuildDescription {
                     Entry::Occupied(e) => *e.get(),
                     Entry::Vacant(e) => {
                         let node_index = self.graph.add_node(NodeData {
-                            path: output_path_ref,
+                            path: self.path_cache.get(output_path_ref).clone().to_vec(),
+                            mtime: MTime::Unknown,
                         });
                         e.insert(node_index);
                         node_index
@@ -117,10 +164,6 @@ impl BuildDescription {
         self.graph.externals(Direction::Outgoing)
     }
 
-    pub fn dependencies(&self, of: NodeIndex) -> impl Iterator<Item = NodeIndex> + '_ {
-        self.graph.neighbors_directed(of, Direction::Incoming)
-    }
-
     pub fn command(&self, target: NodeIndex) -> Option<&Command> {
         self.input_edge(target).map(|e| &e.weight().command)
     }
@@ -129,5 +172,98 @@ impl BuildDescription {
         self.graph
             .edges_directed(target, Direction::Incoming)
             .next()
+    }
+
+    pub fn build_order(&mut self) -> Vec<NodeIndex> {
+        // TODO: Use command line arguments from config if passed.
+        let start_nodes: Vec<NodeIndex> = self.roots().collect();
+
+        // We could use toposort, but that would do it over the entire graph, so we use a
+        // post-order traversal and yield items instead.
+        // TODO: Cycle handling.
+
+        // We reverse the normal toposort ordering since our directed graph flows in the
+        // opposite direction of the sort we want.
+
+        // Possibly Maintain our own stack coz Rust doesn't like mutability + recursion.
+        //
+
+        let mut order: Vec<NodeIndex> = Vec::new();
+        let mut visited: HashMap<NodeIndex, Mark> = HashMap::new();
+        for node in start_nodes {
+            self.post_order_flipped_toposort(node, &mut order, &mut visited);
+        }
+        for node in &order {
+            self.graph.node_weight_mut(*node).unwrap().restat();
+        }
+        order
+    }
+
+    fn post_order_flipped_toposort(
+        &self,
+        node: NodeIndex,
+        order: &mut Vec<NodeIndex>,
+        visited: &mut HashMap<NodeIndex, Mark>,
+    ) {
+        if let Some(mark) = visited.get(&node) {
+            if *mark == Mark::Permanent {
+                return;
+            } else if *mark == Mark::Temporary {
+                panic!("CYCLE");
+            }
+        }
+
+        visited.insert(node, Mark::Temporary);
+
+        for dep in self.graph.neighbors_directed(node, Direction::Incoming) {
+            self.post_order_flipped_toposort(dep, order, visited);
+        }
+
+        visited.insert(node, Mark::Permanent);
+        order.push(node);
+    }
+
+    pub fn dump_node(&self, node: NodeIndex) {
+        let path = &self.graph[node].path;
+        eprintln!("node {}", std::str::from_utf8(path).unwrap());
+    }
+
+    pub fn recompute_dirty(&mut self, node: NodeIndex) {}
+
+    pub fn dirty(&self, node: NodeIndex) -> bool {
+        let node_data = &self.graph[node];
+        let node_mtime = match node_data.last_modified() {
+            MTime::Is(mt) => mt,
+            MTime::DoesNotExist => return true,
+            _ => panic!("Unexpected"),
+        };
+
+        let mut older_than_deps = false;
+
+        let mut it = self
+            .graph
+            .neighbors_directed(node, Direction::Incoming)
+            .detach();
+        while let Some(dep) = it.next_node(&self.graph) {
+            let dep = &self.graph[dep];
+            match dep.last_modified() {
+                MTime::Is(mt) => {
+                    if node_mtime < mt {
+                        older_than_deps = true;
+                        break;
+                    }
+                }
+                _ => {
+                    let path = std::str::from_utf8(&dep.path).unwrap();
+                    panic!("Expected dep {} to already be built or exist on disk", path);
+                }
+            }
+        }
+
+        older_than_deps
+    }
+
+    pub fn mark_done(&mut self, node: NodeIndex) {
+        (&mut self.graph[node]).restat();
     }
 }

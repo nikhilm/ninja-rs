@@ -1,7 +1,7 @@
 extern crate ninja_desc;
 
 // TODO: Should eventually move to a concrete implementation of the task abstraction.
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, rc::Rc};
+use std::{cell::RefCell, ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, rc::Rc};
 
 use ninja_desc::{BuildDescription, NodeIndex};
 
@@ -10,13 +10,17 @@ pub struct BuildState {}
 
 #[derive(Debug)]
 pub struct Scheduler {
-    desc: Rc<BuildDescription>,
+    desc: Rc<RefCell<BuildDescription>>,
     state: BuildState,
     rebuilder: Rebuilder,
 }
 
 impl Scheduler {
-    pub fn new(desc: Rc<BuildDescription>, state: BuildState, rebuilder: Rebuilder) -> Scheduler {
+    pub fn new(
+        desc: Rc<RefCell<BuildDescription>>,
+        state: BuildState,
+        rebuilder: Rebuilder,
+    ) -> Scheduler {
         Scheduler {
             desc: desc,
             state: state,
@@ -25,10 +29,11 @@ impl Scheduler {
     }
 
     pub fn run(mut self) {
-        // Really dumb scheduler
-        // No topo sort, no "end" finding
-        // No dependency resolution. just run one edge.
-        for idx in self.desc.roots() {
+        let to_build = {
+            let mut desc = self.desc.borrow_mut();
+            desc.build_order()
+        };
+        for idx in to_build {
             self.rebuilder.build(idx);
         }
     }
@@ -36,11 +41,11 @@ impl Scheduler {
 
 #[derive(Debug)]
 pub struct Rebuilder {
-    desc: Rc<BuildDescription>,
+    desc: Rc<RefCell<BuildDescription>>,
 }
 
 impl Rebuilder {
-    pub fn new(desc: Rc<BuildDescription>) -> Rebuilder {
+    pub fn new(desc: Rc<RefCell<BuildDescription>>) -> Rebuilder {
         Rebuilder { desc: desc }
     }
 
@@ -49,30 +54,26 @@ impl Rebuilder {
     // abstraction to move the rebuilder away from the "run a command" to "execute a task"
     // paradigm.
     fn build(&self, target: NodeIndex) {
-        // actually the rebuilder needs to walk the edges to determine if deps are already up to
-        // date.
+        let mut desc = self.desc.borrow_mut();
+        let dirty = desc.dirty(target);
 
-        // Bring dependencies up to date.
-        // This is effectively a suspending scheduler, so we shouldn't use this model right now.
-        // The other broken-ness here is that commands do need to be tagged to edges to prevent
-        // rebuilds... or do they?
-        for dep in self.desc.dependencies(target) {
-            self.build(dep);
+        if dirty {
+            // Run command.
+            let command = desc.command(target);
+            if command.is_none() {
+                return;
+            }
+            let command_str: &OsStr = OsStrExt::from_bytes(command.unwrap());
+            println!("{}", std::str::from_utf8(command.unwrap()).unwrap());
+            // POSIX only
+            Command::new("/bin/sh")
+                .arg("-c")
+                .arg(command_str)
+                .status()
+                .expect("success");
         }
 
-        // Run command.
-        let command = self.desc.command(target);
-        if command.is_none() {
-            return;
-        }
-        let command_str: &OsStr = OsStrExt::from_bytes(command.unwrap());
-        println!("{}", std::str::from_utf8(command.unwrap()).unwrap());
-        // POSIX only
-        Command::new("/bin/sh")
-            .arg("-c")
-            .arg(command_str)
-            .status()
-            .expect("success");
+        desc.mark_done(target);
     }
 }
 
