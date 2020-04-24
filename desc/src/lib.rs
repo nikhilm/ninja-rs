@@ -169,6 +169,9 @@ impl BuildDescription {
     }
 
     fn input_edge(&self, target: NodeIndex) -> Option<EdgeReference<'_, EdgeData>> {
+        // TODO: This is kinda incorrect but works.
+        // Technically we have one input edge per input in a multi-input edge, but they all share
+        // the same command.
         self.graph
             .edges_directed(target, Direction::Incoming)
             .next()
@@ -228,8 +231,6 @@ impl BuildDescription {
         eprintln!("node {}", std::str::from_utf8(path).unwrap());
     }
 
-    pub fn recompute_dirty(&mut self, node: NodeIndex) {}
-
     pub fn dirty(&self, node: NodeIndex) -> bool {
         let node_data = &self.graph[node];
         let node_mtime = match node_data.last_modified() {
@@ -264,6 +265,17 @@ impl BuildDescription {
     }
 
     pub fn mark_done(&mut self, node: NodeIndex) {
-        (&mut self.graph[node]).restat();
+        // We can't just restat this node. Consider a multi-output node where both nodes are about
+        // to be built. When the first node causes the command to be run, if we don't restat all
+        // the outputs, the second one will still be considered old, leading to running the command
+        // again.
+        // How does one find all the outputs of the same command in a graph where there is no such
+        // link?
+        // OOPS! No such association can be inferred simply by going to the input side and asking
+        // for its outputs, because one input can be shared by multiple build edges.
+        // We would need to iterate over all outgoing edges of inputs and only find the ones that
+        // have the same command as this. this is probably where a comparable (Eq), shared edge
+        // data would be useful. The edge data seems like it is immutable after creation.
+        todo!("Do this properly");
     }
 }
