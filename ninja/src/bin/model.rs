@@ -1,14 +1,23 @@
-use std::{fs::metadata, process::Command};
+use std::{collections::HashSet, fs::metadata, process::Command};
 
-type Fetch<K, V> = Box<dyn Fn(K) -> V>;
+extern crate petgraph;
+use petgraph::{
+    algo::toposort,
+    graph::NodeIndex,
+    visit::{depth_first_search, Control, DfsEvent, DfsPostOrder},
+    Direction, Graph,
+};
 
-trait Task<K, V> {
+trait Task<V> {
     fn run(&self /*, fetch: Fetch<K, V>*/) -> V;
-    fn dependencies(&self) -> Vec<K>;
 }
 
 trait Rebuilder<K, V> {
-    fn build(&self, key: K, currentValue: V, task: &dyn Task<K, V>) -> V;
+    fn build(&self, key: K, current_value: V, task: &dyn Task<V>) -> V;
+}
+
+trait Scheduler<K, V> {
+    fn schedule(&self, rebuilder: &dyn Rebuilder<K, V>, start: Vec<K>);
 }
 
 // --------- impl
@@ -37,23 +46,15 @@ struct TaskResult {}
 #[derive(Debug)]
 struct CommandTask {
     command: String,
-    pub dependencies: Vec<Key>,
 }
 
 impl CommandTask {
     fn new<S: Into<String>>(c: S) -> CommandTask {
-        CommandTask {
-            command: c.into(),
-            dependencies: Vec::new(),
-        }
-    }
-
-    fn add_dep<S: Into<Key>>(&mut self, c: S) {
-        self.dependencies.push(c.into());
+        CommandTask { command: c.into() }
     }
 }
 
-impl Task<Key, TaskResult> for CommandTask {
+impl Task<TaskResult> for CommandTask {
     fn run(&self) -> TaskResult {
         eprintln!("{}", &self.command);
         Command::new("/bin/sh")
@@ -63,43 +64,31 @@ impl Task<Key, TaskResult> for CommandTask {
             .expect("success");
         TaskResult {}
     }
-
-    fn dependencies(&self) -> Vec<Key> {
-        self.dependencies.clone()
-    }
 }
 
 #[derive(Debug)]
-struct PhonyTask {
-    pub dependencies: Vec<Key>,
-}
+struct PhonyTask {}
 
 impl PhonyTask {
     fn new() -> PhonyTask {
-        PhonyTask {
-            dependencies: Vec::new(),
-        }
-    }
-
-    fn add_dep<S: Into<Key>>(&mut self, c: S) {
-        self.dependencies.push(c.into());
+        PhonyTask {}
     }
 }
 
-impl Task<Key, TaskResult> for PhonyTask {
+impl Task<TaskResult> for PhonyTask {
     fn run(&self) -> TaskResult {
         TaskResult {}
     }
-
-    fn dependencies(&self) -> Vec<Key> {
-        self.dependencies.clone()
-    }
 }
 
-struct MTimeRebuilder {}
+type MyGraph = petgraph::Graph<Key, ()>;
+struct MTimeRebuilder<'a> {
+    graph: &'a MyGraph,
+}
 
-impl Rebuilder<Key, TaskResult> for MTimeRebuilder {
-    fn build(&self, key: Key, _: TaskResult, task: &dyn Task<Key, TaskResult>) -> TaskResult {
+impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
+    fn build(&self, node: NodeIndex, _: TaskResult, task: &dyn Task<TaskResult>) -> TaskResult {
+        let key = &self.graph[node];
         let outputs: Vec<String> = match key {
             Key::Path(p) => vec![p.clone()],
             Key::Multi(ps) => ps.clone(),
@@ -110,7 +99,9 @@ impl Rebuilder<Key, TaskResult> for MTimeRebuilder {
             .map(|path| metadata(path).expect("metadata").modified().expect("mtime"))
             .min()
             .expect("at least one");
-        let dirty = task.dependencies().iter().any(|dep| {
+        let mut dependencies = self.graph.neighbors_directed(node, Direction::Outgoing);
+        let dirty = dependencies.any(|dep| {
+            let dep = &self.graph[dep];
             match dep {
                 Key::Path(p) => {
                     let dep_mtime = metadata(p).expect("metadata").modified().expect("mtime");
@@ -134,48 +125,94 @@ impl Rebuilder<Key, TaskResult> for MTimeRebuilder {
     }
 }
 
+struct TopoScheduler<'a> {
+    tasks: &'a dyn Fn(NodeIndex) -> Option<&'a dyn Task<TaskResult>>,
+    graph: &'a MyGraph,
+}
+
+impl<'a> Scheduler<NodeIndex, TaskResult> for TopoScheduler<'a> {
+    fn schedule(&self, rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
+        let mut order: Vec<NodeIndex> = Vec::new();
+        // might be able to use CrossForwardEdge instead of this to detect cycles.
+        let mut seen: HashSet<NodeIndex> = HashSet::new();
+        let cycle_checking_sorter = |evt: DfsEvent<NodeIndex>| -> Control<()> {
+            if let DfsEvent::Finish(n, _) = evt {
+                if seen.contains(&n) {
+                    eprintln!("Seen {:?} already", &self.graph[n]);
+                    panic!("cycle");
+                }
+                seen.insert(n);
+                order.push(n);
+            }
+            Control::Continue
+        };
+        depth_first_search(self.graph, start.into_iter(), cycle_checking_sorter);
+        for node in order {
+            let task = (self.tasks)(node);
+            if let Some(task) = task {
+                rebuilder.build(node, TaskResult {}, task);
+            }
+        }
+    }
+}
+
 fn main() {
-    let multi_key = Key::Multi(vec!["b".into(), "c".into()]);
+    // Graph is flipped to accomodate dfs topo sort
+    let mut graph: Graph<Key, ()> = petgraph::Graph::new();
+
+    let source_key = Key::Path("foo.c".into());
+    let source_node = graph.add_node(source_key.clone());
+
     let mut cc_task = CommandTask::new("gcc -c foo.c");
-    cc_task.add_dep("foo.c");
+    let cc_key = Key::Path("foo.o".into());
+    let cc_node = graph.add_node(cc_key.clone());
+    graph.add_edge(cc_node, source_node, ());
+
     let mut link_task = CommandTask::new("gcc -o foo foo.o");
-    link_task.add_dep("foo.o");
+    let link_key = Key::Path("foo".into());
+    let link_node = graph.add_node(link_key.clone());
+    graph.add_edge(link_node, cc_node, ());
+
+    let a_key = Key::Path("a".into());
+    let a_node = graph.add_node(a_key.clone());
     let mut touch_task = CommandTask::new("touch b c");
-    touch_task.add_dep("a");
     let mut phony_b = PhonyTask::new();
-    phony_b.add_dep(multi_key.clone());
     let mut phony_c = PhonyTask::new();
-    phony_c.add_dep(multi_key.clone());
-    let tasks = |k: Key| -> Option<&dyn Task<Key, TaskResult>> {
-        if k == "foo.o".into() {
+    let multi_key = Key::Multi(vec!["b".into(), "c".into()]);
+    let multi_node = graph.add_node(multi_key.clone());
+    let phony_b_key = Key::Path("b".into());
+    let phony_b_node = graph.add_node(phony_b_key.clone());
+    let phony_c_key = Key::Path("c".into());
+    let phony_c_node = graph.add_node(phony_c_key.clone());
+    graph.add_edge(multi_node, a_node, ());
+    graph.add_edge(phony_b_node, multi_node, ());
+    graph.add_edge(phony_c_node, multi_node, ());
+
+    let tasks = |k: NodeIndex| -> Option<&dyn Task<TaskResult>> {
+        if k == cc_node {
             Some(&cc_task)
-        } else if k == "foo".into() {
+        } else if k == link_node {
             Some(&link_task)
-        } else if k == "b".into() {
+        } else if k == phony_b_node {
             Some(&phony_b)
-        } else if k == "c".into() {
+        } else if k == phony_c_node {
             Some(&phony_c)
-        } else if k == multi_key {
+        } else if k == multi_node {
             Some(&touch_task)
         } else {
             None
         }
     };
 
-    // pretend scheduler got this order.
-    let order: Vec<Key> = vec![
-        Key::Multi(vec!["b".into(), "c".into()]),
-        "b".into(),
-        "foo.o".into(),
-        "foo".into(),
-    ];
-
     // Fetch is unused because it really doesn't make any sense and introduces too many closures
     // kind of things where rebuilder now has to return a pretend-task that calls the underlying
     // task.
 
-    let rebuilder = MTimeRebuilder {};
-    for k in order {
-        rebuilder.build(k.clone(), TaskResult {}, tasks(k).unwrap());
-    }
+    let rebuilder = MTimeRebuilder { graph: &graph };
+    let scheduler = TopoScheduler {
+        tasks: &tasks,
+        graph: &graph,
+    };
+    let start: Vec<NodeIndex> = graph.externals(Direction::Incoming).collect();
+    scheduler.schedule(&rebuilder, start);
 }

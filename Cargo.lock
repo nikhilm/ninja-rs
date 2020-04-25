@@ -24,6 +24,7 @@ version = "0.1.0"
 dependencies = [
  "ninja-build 0.1.0",
  "ninja-parse 0.1.0",
+ "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

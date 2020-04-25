@@ -7,3 +7,6 @@ edition = "2018"
 [dependencies]
 ninja-parse = { path = "../parse" }
 ninja-build = { path = "../build" }
+
+# Temporary for the model.
+petgraph = "^0.5"
