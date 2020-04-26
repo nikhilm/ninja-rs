@@ -7,12 +7,10 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use ninja_desc::BuildDescription;
+use ninja_desc::Builder;
 
-mod desc;
 mod lexer;
 
-use desc::DescriptionBuilder;
 use lexer::{Lexer, Position, Token};
 
 #[derive(Debug)]
@@ -96,7 +94,7 @@ impl Display for ParseError {
 pub struct Parser<'a, 'b> {
     lexer: Lexer<'a, 'b>,
     env: Env<'a>,
-    builder: DescriptionBuilder,
+    builder: Builder,
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -104,7 +102,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         Parser {
             lexer: Lexer::new(input, filename, None),
             env: Env::new(),
-            builder: DescriptionBuilder::new(),
+            builder: Default::default(),
         }
     }
 
@@ -213,8 +211,8 @@ impl<'a, 'b> Parser<'a, 'b> {
 
         // I'd have really liked a Vec<&[u8]> here and then converting to an owned vec at the last
         // minute in the edge builder, but haven't figured an ergonomic way for that yet.
-        let mut outputs: Vec<Vec<u8>> = Vec::new();
-        let mut inputs: Vec<Vec<u8>> = Vec::new();
+        let mut outputs: Vec<&[u8]> = Vec::new();
+        let mut inputs: Vec<&[u8]> = Vec::new();
         let mut rule = None;
         let mut state = State::ReadFirstOutput;
         let mut first_line_pos = None;
@@ -226,7 +224,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadFirstOutput => match token {
                     Token::Path(v) => {
                         eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
-                        outputs.push(v.into());
+                        outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
                     _ => {
@@ -243,7 +241,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                             "Got another output path {}",
                             std::str::from_utf8(v).unwrap()
                         );
-                        outputs.push(v.into());
+                        outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
                     Token::Colon => {
@@ -281,7 +279,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 State::ReadInputs => match token {
                     Token::Path(v) => {
                         eprintln!("Got input path {}", std::str::from_utf8(v).unwrap());
-                        inputs.push(v.into());
+                        inputs.push(v);
                     }
                     Token::Newline => {
                         break;
@@ -303,12 +301,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         if state == State::ReadInputs {
             let result = self
                 .builder
-                .new_edge()
-                .add_outputs(outputs) // TODO: affected by top level vars
-                // probably eval the outputs and inputs at parse time
-                .add_inputs(inputs) // TODO: affected by top level vars
-                .finish(&self.env, rule.as_ref().unwrap());
-
+                .add_edge(inputs, outputs, rule.unwrap().command);
             if let Err(conflict) = result {
                 Err(ParseError::new(
                     format!(
@@ -329,7 +322,7 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    pub fn parse(mut self) -> Result<BuildDescription, ParseError> {
+    pub fn parse(mut self) -> Result<Builder, ParseError> {
         while let Some((token, _pos)) = self.lexer.next() {
             match token {
                 Token::Rule => {
@@ -344,7 +337,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 }
             }
         }
-        Ok(self.builder.finish())
+        Ok(self.builder)
     }
 }
 
@@ -362,7 +355,7 @@ build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
         let parser = Parser::new(input.as_bytes(), None);
-        eprintln!("{:?}", parser.parse().expect("valid parse"));
+        parser.parse().expect("valid parse");
     }
 
     #[test]

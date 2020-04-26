@@ -1,4 +1,5 @@
 extern crate ninja_desc;
+extern crate ninja_interface;
 
 // TODO: Should eventually move to a concrete implementation of the task abstraction.
 use std::{cell::RefCell, ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, rc::Rc};

@@ -1,0 +1,6 @@
+[package]
+name = "ninja-interface"
+version = "0.1.0"
+authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
+edition = "2018"
+

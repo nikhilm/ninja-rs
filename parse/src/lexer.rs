@@ -15,11 +15,20 @@ pub struct Position {
 impl Position {
     fn new(filename: Option<String>, line: usize, column: usize) -> Position {
         Position {
-            filename: filename,
-            line: line,
+            filename,
+            line,
             // Either we are in a state that requires reading arbitrary input, or we are expecting
             // to match the beginning of a declaration/keyword/identifier.
-            column: column,
+            column,
+        }
+    }
+
+    #[cfg(test)]
+    fn untitled(line: usize, column: usize) -> Position {
+        Position {
+            filename: None,
+            line,
+            column,
         }
     }
 }

@@ -65,6 +65,22 @@ In addition, since commands are unlikely to be shared between edges, there isn't
 
 In addition, we may only want to create an actual topo-sorted thing only for nodes we deem necessary as being reachable from the targets we want. This can be done by constructing the full graph and then simply only adding things to the scheduler that are needed. So the scheduler sees a sequence of nodes or edges that don't necessarily reflect the entire graph.
 
+**Update 2020-04-26** ninja/src/bin/model.rs models abstractions that line up well with the paper (minus deriving dependencies by calling fetch, as task is never applicative) while preserving the behavior we want. The take-aways compared to the C++ ninja implementation are:
+1. Modeling the nodes and edges as true nodes and edges, i.e., if a target has multiple inputs, each input has an edge from the target to the input, allows us to leverage an existing graph library like petgraph, instead of the C++ impl where the "graph" isn't really a graph, because multiple inputs actually share the same Edge object. This allows us to leverage petgraph and its algorithms and data structures, which is partly nicer, partly necessary in Rust due to the multitude of iterators etc. we would otherwise need to write to maintain borrow checker requirements.
+2. Modeling the scheduler as a true topo-sort will probably not allow dyndep kind of things right now, but it is an acceptable trade-off. We are leveraging DfsPostOrder to do the sorting so we do not iterate the entire graph. This means we may be able to simply extend that by "pausing" the post order, or extending it or something when a dependency is discovered. That can be looked at later.
+3. In our graph representation, the directed edges have the source as the target and the sink as the inputs so we can work with DfsPostOrder.
+4. Not keeping "mutable across a session" and "immutable across a session" fields together, as encouraged by the paper abstractions, but not by the C++ impl (where things like mtime are on the Node), may be advantageous in Rust's more restrictive rules, in terms of easily sharing things like the `Graph` across scheduler and rebuilder with simple shared references, since we will never change the graph, while keeping something like the disk interface and mtime separate and using synchronization mechanisms as necessary on it.
+
+We really need an ergonomic Node/Key sharing mechanism that allows using a shared reference/index across the graph, the mtime check and the tasks lookup. Key will likely also refer to Paths internally, so there are multiple levels of indirection to make it nice.
+
+In such a setup, the "builder" comes back into play as the parser should simply feed it edges and have the builder keep track of and produce a:
+1. build graph, where node data is simply keys and edge data is unit.
+2. a tasks lookup function.
+3. a store/state abstraction that is used for mutable bits (disk access and mtimes primarily)
+
+These 3 things can then be transferred to the scheduler and rebuilder. The scheduler needs only the graph, the rebuilder needs all 3.
+If we were to have the parser emit an AST instead of using the builder directly, that gap can be bridged in main.
+
 ## Questions of concurrency
 
 Since we eventually want concurrent job execution, we need to make sure our designs don't lock us into a space where supporting something like that is difficult.
