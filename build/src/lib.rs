@@ -1,12 +1,16 @@
 extern crate ninja_desc;
 extern crate ninja_interface;
+extern crate petgraph;
 
+use std::collections::HashSet;
+
+use petgraph::{
+    graph::NodeIndex,
+    visit::{depth_first_search, Control, DfsEvent},
+};
+
+use ninja_desc::{BuildGraph, TaskResult, TasksMap};
 use ninja_interface::{Rebuilder, Scheduler, Task};
-
-// TODO: Should eventually move to a concrete implementation of the task abstraction.
-use std::{cell::RefCell, ffi::OsStr, os::unix::ffi::OsStrExt, process::Command, rc::Rc};
-
-use ninja_desc::{BuildGraph, NodeIndex, TaskResult, TasksMap};
 
 #[derive(Debug)]
 pub struct BuildState {}
@@ -14,29 +18,50 @@ pub struct BuildState {}
 #[derive(Debug)]
 pub struct TopoScheduler<'a> {
     graph: &'a BuildGraph,
+    tasks: TasksMap,
 }
 
 impl<'a> TopoScheduler<'a> {
-    pub fn new(graph: &'a BuildGraph) -> TopoScheduler {
-        TopoScheduler { graph }
+    pub fn new(graph: &'a BuildGraph, tasks: TasksMap) -> TopoScheduler {
+        TopoScheduler { graph, tasks }
     }
 }
 
 impl<'a> Scheduler<NodeIndex, TaskResult> for TopoScheduler<'a> {
     fn schedule(&self, rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
-        todo!("IMPL");
+        let mut order: Vec<NodeIndex> = Vec::new();
+        // might be able to use CrossForwardEdge instead of this to detect cycles.
+        let mut seen: HashSet<NodeIndex> = HashSet::new();
+        let cycle_checking_sorter = |evt: DfsEvent<NodeIndex>| -> Control<()> {
+            if let DfsEvent::Finish(n, _) = evt {
+                if seen.contains(&n) {
+                    eprintln!("Seen {:?} already", &self.graph[n]);
+                    panic!("cycle");
+                }
+                seen.insert(n);
+                order.push(n);
+            }
+            Control::Continue
+        };
+        depth_first_search(self.graph, start.into_iter(), cycle_checking_sorter);
+        for node in order {
+            let key = &self.graph[node];
+            let task = self.tasks.get(key);
+            if let Some(task) = task {
+                rebuilder.build(node, TaskResult {}, task.as_ref());
+            }
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct MTimeRebuilder<'a> {
     graph: &'a BuildGraph,
-    tasks: TasksMap,
 }
 
 impl<'a> MTimeRebuilder<'a> {
-    pub fn new(graph: &BuildGraph, tasks: TasksMap) -> MTimeRebuilder {
-        MTimeRebuilder { graph, tasks }
+    pub fn new(graph: &BuildGraph) -> MTimeRebuilder {
+        MTimeRebuilder { graph }
     }
 }
 

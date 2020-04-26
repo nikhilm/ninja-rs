@@ -24,8 +24,8 @@ fn main() {
     // If we had an intermediate AST, we could break the parser's dependency on this.
     let (graph, tasks) = builder.consume();
     //let mut store = DiskStore::new();
-    let rebuilder = MTimeRebuilder::new(&graph, tasks);
-    let scheduler = TopoScheduler::new(&graph);
+    let rebuilder = MTimeRebuilder::new(&graph);
+    let scheduler = TopoScheduler::new(&graph, tasks);
     // TODO: Find starting nodes based on user input.
     // TODO: Ideally this crate also would not depend on petgraph directly.
     let start: Vec<NodeIndex> = graph.externals(Direction::Incoming).collect();
