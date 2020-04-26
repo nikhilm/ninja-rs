@@ -11,7 +11,7 @@ use ninja_interface::Task;
 use ninja_paths::PathRef;
 
 mod tasks;
-use tasks::{CommandTask, PhonyTask, TaskResult};
+use tasks::{CommandTask, PhonyTask};
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum Key {
@@ -21,6 +21,8 @@ pub enum Key {
     Multi(Vec<Vec<u8>>),
 }
 
+pub use petgraph::graph::NodeIndex;
+pub use tasks::TaskResult;
 pub type BuildGraph = petgraph::Graph<Key, ()>;
 pub type TasksMap = HashMap<Key, Box<dyn Task<TaskResult>>>;
 

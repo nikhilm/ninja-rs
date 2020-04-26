@@ -1,8 +1,11 @@
 extern crate ninja_build;
 extern crate ninja_parse;
+extern crate petgraph;
 
-use ninja_build::{BuildLog, Rebuilder, Scheduler};
+use ninja_build::{BuildLog, MTimeRebuilder, TopoScheduler};
+use ninja_interface::Scheduler;
 use ninja_parse::Parser;
+use petgraph::{graph::NodeIndex, Direction};
 
 fn main() {
     let start = "build.ninja";
@@ -20,9 +23,12 @@ fn main() {
     // Tasks yields a ninja specific set of traits
     // If we had an intermediate AST, we could break the parser's dependency on this.
     let (graph, tasks) = builder.consume();
-    let mut store = DiskStore::new();
-    let rebuilder = Rebuilder::new(&graph, tasks, store);
-    let scheduler = NinjaTopoScheduler::new(&graph, rebuilder);
-    scheduler.run();
+    //let mut store = DiskStore::new();
+    let rebuilder = MTimeRebuilder::new(&graph, tasks);
+    let scheduler = TopoScheduler::new(&graph);
+    // TODO: Find starting nodes based on user input.
+    // TODO: Ideally this crate also would not depend on petgraph directly.
+    let start: Vec<NodeIndex> = graph.externals(Direction::Incoming).collect();
+    scheduler.schedule(&rebuilder, start);
     // build log loading later
 }
