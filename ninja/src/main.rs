@@ -22,6 +22,8 @@ fn main() {
     let state = BuildLog::read();
     // Tasks yields a ninja specific set of traits
     // If we had an intermediate AST, we could break the parser's dependency on this.
+    // What we really want a pull pipeline, where a builder can take a parser, and may be a task
+    // creator and create the graph.
     let (graph, tasks) = builder.consume();
     //let mut store = DiskStore::new();
     let rebuilder = MTimeRebuilder::new(&graph);

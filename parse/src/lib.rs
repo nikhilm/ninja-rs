@@ -223,7 +223,6 @@ impl<'a, 'b> Parser<'a, 'b> {
             match state {
                 State::ReadFirstOutput => match token {
                     Token::Path(v) => {
-                        eprintln!("Got first output path {}", std::str::from_utf8(v).unwrap());
                         outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
@@ -237,10 +236,6 @@ impl<'a, 'b> Parser<'a, 'b> {
                 },
                 State::ReadRemainingOutputs => match token {
                     Token::Path(v) => {
-                        eprintln!(
-                            "Got another output path {}",
-                            std::str::from_utf8(v).unwrap()
-                        );
                         outputs.push(v);
                         state = State::ReadRemainingOutputs;
                     }
@@ -257,7 +252,6 @@ impl<'a, 'b> Parser<'a, 'b> {
                 },
                 State::ReadRule => match token {
                     Token::Identifier(v) => {
-                        eprintln!("Got rule name {}", std::str::from_utf8(v).unwrap());
                         rule = self.env.lookup_rule(v);
                         if rule.is_none() {
                             return Err(ParseError::new(
@@ -278,7 +272,6 @@ impl<'a, 'b> Parser<'a, 'b> {
                 },
                 State::ReadInputs => match token {
                     Token::Path(v) => {
-                        eprintln!("Got input path {}", std::str::from_utf8(v).unwrap());
                         inputs.push(v);
                     }
                     Token::Newline => {
@@ -332,6 +325,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                     self.parse_build()?;
                 }
                 Token::Newline => {}
+                Token::Comment(_) => {}
                 _ => {
                     eprintln!("Unhandled token {:?}", token);
                 }

@@ -24,7 +24,7 @@ pub enum Key {
 pub use petgraph::graph::NodeIndex;
 pub use tasks::TaskResult;
 pub type BuildGraph = petgraph::Graph<Key, ()>;
-pub type TasksMap = HashMap<Key, Box<dyn Task<TaskResult>>>;
+pub type TasksMap = HashMap<NodeIndex, Box<dyn Task<TaskResult>>>;
 
 // TODO: Also add a path cache shared by the graph and everything else.
 #[derive(Default, Debug)]
@@ -62,6 +62,8 @@ impl Builder {
         let _ = conflict?;
 
         let output_node = self.graph.add_node(Builder::make_key(&outputs));
+        let task: CommandTask = CommandTask::new(command.clone());
+        self.tasks.insert(output_node, Box::new(task));
         // TODO: Look up existing nodes!
         for input in inputs {
             let input_node = self.graph.add_node(Builder::make_key_single(input));
@@ -72,6 +74,8 @@ impl Builder {
         if outputs.len() > 1 {
             for output in outputs {
                 let phony_node = self.graph.add_node(Builder::make_key_single(output));
+                let task: PhonyTask = Default::default();
+                self.tasks.insert(phony_node, Box::new(task));
                 self.graph.add_edge(phony_node, output_node, ());
             }
         }
