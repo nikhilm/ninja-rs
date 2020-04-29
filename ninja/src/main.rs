@@ -24,9 +24,9 @@ fn main() {
     // If we had an intermediate AST, we could break the parser's dependency on this.
     // What we really want a pull pipeline, where a builder can take a parser, and may be a task
     // creator and create the graph.
-    let (graph, tasks) = builder.consume();
+    let (graph, tasks, path_cache) = builder.consume();
     //let mut store = DiskStore::new();
-    let rebuilder = MTimeRebuilder::new(&graph);
+    let rebuilder = MTimeRebuilder::new(&graph, path_cache);
     let scheduler = TopoScheduler::new(&graph, tasks);
     // TODO: Find starting nodes based on user input.
     // TODO: Ideally this crate also would not depend on petgraph directly.

@@ -9,7 +9,7 @@ struct PathNode {
     path: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PathCache {
     nodes: Vec<PathNode>,
     // Not clear yet if the key should be &[u8] or OsString.
@@ -36,13 +36,6 @@ pub enum InsertResult {
 // refer to the same files.
 
 impl PathCache {
-    pub fn new() -> PathCache {
-        PathCache {
-            nodes: vec![],
-            map: HashMap::new(),
-        }
-    }
-
     // The same path ends up returning a re-used noderef.
     // the only thing that needs to check for collisions is the parser, where it may want to
     // complain for output nodes

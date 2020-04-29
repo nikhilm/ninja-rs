@@ -1,6 +1,9 @@
 extern crate ninja_desc;
 extern crate ninja_interface;
+extern crate ninja_paths;
 extern crate petgraph;
+
+use ninja_paths::PathCache;
 
 use std::{collections::HashSet, ffi::OsStr, fs::metadata, os::unix::ffi::OsStrExt};
 
@@ -57,11 +60,12 @@ impl<'a> Scheduler<NodeIndex, TaskResult> for TopoScheduler<'a> {
 #[derive(Debug)]
 pub struct MTimeRebuilder<'a> {
     graph: &'a BuildGraph,
+    path_cache: PathCache,
 }
 
 impl<'a> MTimeRebuilder<'a> {
-    pub fn new(graph: &BuildGraph) -> MTimeRebuilder {
-        MTimeRebuilder { graph }
+    pub fn new(graph: &BuildGraph, path_cache: PathCache) -> MTimeRebuilder {
+        MTimeRebuilder { graph, path_cache }
     }
 }
 
@@ -75,8 +79,8 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
         // This function obviously needs a lot of error handling.
         let key = &self.graph[node];
         let mtime = match key {
-            Key::Path(path) => {
-                let path_str: &OsStr = OsStrExt::from_bytes(&path);
+            Key::Path(path_ref) => {
+                let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
                 let path = std::path::Path::new(path_str);
                 if path.exists() {
                     Some(metadata(path).expect("metadata").modified().expect("mtime"))
@@ -88,8 +92,8 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
                 // If the oldest output is older than any input, rebuild.
                 let times: Vec<std::time::SystemTime> = outputs
                     .iter()
-                    .filter_map(|path| {
-                        let path_str: &OsStr = OsStrExt::from_bytes(&path);
+                    .filter_map(|path_ref| {
+                        let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
                         let path = std::path::Path::new(path_str);
                         if path.exists() {
                             Some(metadata(path).expect("metadata").modified().expect("mtime"))
@@ -114,8 +118,8 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
             dependencies.any(|dep| {
                 let dep = &self.graph[dep];
                 match dep {
-                    Key::Path(path) => {
-                        let path_str: &OsStr = OsStrExt::from_bytes(&path);
+                    Key::Path(path_ref) => {
+                        let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
                         let dep_mtime = metadata(path_str)
                             .expect("metadata")
                             .modified()
