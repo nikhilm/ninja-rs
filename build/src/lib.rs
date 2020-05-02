@@ -9,7 +9,7 @@ use std::{collections::HashSet, ffi::OsStr, fs::metadata, os::unix::ffi::OsStrEx
 
 use petgraph::{
     graph::NodeIndex,
-    visit::{depth_first_search, Control, DfsEvent},
+    visit::{depth_first_search, Control, DfsEvent, DfsPostOrder},
     Direction,
 };
 
@@ -34,20 +34,25 @@ impl<'a> TopoScheduler<'a> {
 impl<'a> Scheduler<NodeIndex, TaskResult> for TopoScheduler<'a> {
     fn schedule(&self, rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
         let mut order: Vec<NodeIndex> = Vec::new();
-        // might be able to use CrossForwardEdge instead of this to detect cycles.
-        let mut seen: HashSet<NodeIndex> = HashSet::new();
-        let cycle_checking_sorter = |evt: DfsEvent<NodeIndex>| -> Control<()> {
-            if let DfsEvent::Finish(n, _) = evt {
-                if seen.contains(&n) {
-                    eprintln!("Seen {:?} already", &self.graph[n]);
-                    panic!("cycle");
-                }
-                seen.insert(n);
-                order.push(n);
+        // Cannot use depth_first_search which doesn't say if it is postorder.
+        let mut visitor = DfsPostOrder::empty(self.graph);
+        for start in start {
+            visitor.move_to(start);
+            while let Some(node) = visitor.next(self.graph) {
+                order.push(node);
             }
-            Control::Continue
-        };
-        depth_first_search(self.graph, start.into_iter(), cycle_checking_sorter);
+        }
+        // TODO: How to model parallel task execution?
+        // At this point we know exactly which tasks to run, and in order of their dependencies,
+        // but as soon as we start running in parallel, we've to wait for the task for foo.o to
+        // finish before starting the task for foo, without relying on the serialization right
+        // here. So instead of doing a straight topo sort above, are we going back to a ninja style
+        // ready list? Alternatively we simply build up a Future tree while we are topologically
+        // sorting, then queue them up using a thread pool.
+        // As a thought experiment, if we did this from scratch, how would it work? We cannot
+        // submit work to the threadpool until it can actually be done. similarly, we need to hear
+        // back from the thread pool when work finishes so we can check if any tasks can be kicked
+        // off.
         for node in order {
             let task = self.tasks.get(&node);
             if let Some(task) = task {

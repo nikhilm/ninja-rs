@@ -19,7 +19,7 @@ fn main() {
         }
         result.unwrap()
     };
-    let state = BuildLog::read();
+    let _state = BuildLog::read();
     // Tasks yields a ninja specific set of traits
     // If we had an intermediate AST, we could break the parser's dependency on this.
     // What we really want a pull pipeline, where a builder can take a parser, and may be a task
