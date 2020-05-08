@@ -2,7 +2,7 @@ extern crate ninja_build;
 extern crate ninja_parse;
 extern crate petgraph;
 
-use ninja_build::{BuildLog, MTimeRebuilder, ParallelTopoScheduler};
+use ninja_build::{MTimeRebuilder, ParallelTopoScheduler};
 use ninja_interface::Scheduler;
 use ninja_parse::Parser;
 use petgraph::{graph::NodeIndex, Direction};

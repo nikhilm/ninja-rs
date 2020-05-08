@@ -163,21 +163,21 @@ fn main() {
     let source_key = Key::Path("foo.c".into());
     let source_node = graph.add_node(source_key.clone());
 
-    let mut cc_task = CommandTask::new("gcc -c foo.c");
+    let cc_task = CommandTask::new("gcc -c foo.c");
     let cc_key = Key::Path("foo.o".into());
     let cc_node = graph.add_node(cc_key.clone());
     graph.add_edge(cc_node, source_node, ());
 
-    let mut link_task = CommandTask::new("gcc -o foo foo.o");
+    let link_task = CommandTask::new("gcc -o foo foo.o");
     let link_key = Key::Path("foo".into());
     let link_node = graph.add_node(link_key.clone());
     graph.add_edge(link_node, cc_node, ());
 
     let a_key = Key::Path("a".into());
     let a_node = graph.add_node(a_key.clone());
-    let mut touch_task = CommandTask::new("touch b c");
-    let mut phony_b = PhonyTask::new();
-    let mut phony_c = PhonyTask::new();
+    let touch_task = CommandTask::new("touch b c");
+    let phony_b = PhonyTask::new();
+    let phony_c = PhonyTask::new();
     let multi_key = Key::Multi(vec!["b".into(), "c".into()]);
     let multi_node = graph.add_node(multi_key.clone());
     let phony_b_key = Key::Path("b".into());

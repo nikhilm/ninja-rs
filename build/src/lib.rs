@@ -33,7 +33,7 @@ impl<'a> ParallelTopoScheduler<'a> {
 }
 
 impl<'a> Scheduler<NodeIndex, TaskResult> for ParallelTopoScheduler<'a> {
-    fn schedule(&self, rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
+    fn schedule(&self, _rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
         let mut build_state: BuildState = Default::default();
 
         // Cannot use depth_first_search which doesn't say if it is postorder.
