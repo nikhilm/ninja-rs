@@ -13,11 +13,51 @@ use ninja_interface::{Rebuilder, Scheduler};
 mod rebuilder;
 pub use rebuilder::MTimeRebuilder;
 
+#[derive(Debug)]
+struct Pool {
+    capacity: u32,
+    in_use: u32,
+}
+
+impl Default for Pool {
+    fn default() -> Self {
+        // yea this is obviously dumb.
+        Self::with_capacity(8)
+    }
+}
+
+// acquiring and giving up can probably leverage the type system to have a MutexGuard kind of
+// thing.
+impl Pool {
+    pub fn with_capacity(capacity: u32) -> Pool {
+        Pool {
+            capacity,
+            in_use: 0,
+        }
+    }
+
+    pub fn has_capacity(&mut self) -> bool {
+        return self.in_use < self.capacity;
+    }
+
+    pub fn acquire(&mut self) {
+        assert!(self.has_capacity());
+        self.in_use += 1;
+    }
+
+    pub fn release(&mut self) {
+        assert!(self.in_use > 0);
+        self.in_use -= 1;
+    }
+}
+
 #[derive(Debug, Default)]
 struct BuildState {
     pub ready: VecDeque<NodeIndex>,
     pub waiting: HashSet<NodeIndex>,
     pub building: HashSet<NodeIndex>,
+
+    pub global_pool: Pool,
 }
 
 #[derive(Debug)]
@@ -45,6 +85,17 @@ impl<'a> Scheduler<NodeIndex, TaskResult> for ParallelTopoScheduler<'a> {
                     build_state.ready.push_back(node);
                 } else {
                     build_state.waiting.insert(node);
+                }
+            }
+        }
+
+        loop {
+            if build_state.global_pool.has_capacity() {
+                if let Some(next) = build_state.ready.pop_front() {
+                    build_state.global_pool.acquire();
+                    // Rebuilder interface also needs to change to be more "async". Like build only
+                    // starts a task.
+                    rebuilder.build
                 }
             }
         }
