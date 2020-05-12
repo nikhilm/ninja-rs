@@ -3,61 +3,103 @@ extern crate ninja_interface;
 extern crate ninja_paths;
 extern crate petgraph;
 
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::mpsc::{sync_channel, Receiver, SyncSender},
+    thread::JoinHandle,
+};
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
 use ninja_desc::{BuildGraph, TaskResult, TasksMap};
-use ninja_interface::{Rebuilder, Scheduler};
+use ninja_interface::{Rebuilder, Scheduler, Task};
 
 mod rebuilder;
 pub use rebuilder::MTimeRebuilder;
 
-#[derive(Debug)]
-struct Pool {
+#[derive(Debug, Default)]
+struct BuildState {
+    ready: VecDeque<NodeIndex>,
+    finished: HashMap<NodeIndex, TaskResult>,
+}
+
+type MyRebuilder<'a> = &'a dyn Rebuilder<NodeIndex, TaskResult>
+
+#[derive(Debug, Default)]
+struct RebuildPool {
     capacity: u32,
-    in_use: u32,
+    running: u32,
+    handles: Vec<JoinHandle<_>>,
+    sender: SyncSender<_>,
+    receiver: Receiver<_>,
 }
 
-impl Default for Pool {
-    fn default() -> Self {
-        // yea this is obviously dumb.
-        Self::with_capacity(8)
-    }
+enum Request {
+    Stop,
+    Task(NodeIndex, Task<TaskResult>),
 }
 
-// acquiring and giving up can probably leverage the type system to have a MutexGuard kind of
-// thing.
-impl Pool {
-    pub fn with_capacity(capacity: u32) -> Pool {
-        Pool {
+impl RebuildPool {
+    fn new(capacity: u32) -> RebuildPool {
+        let (sender, receiver) = sync_channel(0);
+        RebuildPool {
             capacity,
-            in_use: 0,
+            running: 0,
+            handles: Vec::new(),
+            sender,
+            receiver,
         }
     }
 
-    pub fn has_capacity(&mut self) -> bool {
-        return self.in_use < self.capacity;
+    fn has_capacity(&self) -> bool {
+        self.running < self.capacity
     }
 
-    pub fn acquire(&mut self) {
+    fn run_thread(sender: Sender<_>) {
+        loop {
+            match _get_it {
+                Request::Stop => break,
+                Request::Task(node, task) => {
+                    let result = task.run();
+                    sender.send(node, result);
+                }
+            }
+        }
+    }
+
+    fn build(&mut self, node: NodeIndex, task: Box<Task<TaskResult>>) {
+        // No optimizations for now, simply launch capacity threads.
+        if self.handles.is_empty() {
+            (0..self.capacity).for_each(|_| {
+                let sender = self.sender.clone();
+                self.handles.push(std::thread::spawn(move || {
+                    run_thread(sender);
+                }));
+            });
+        }
+        assert!(self.handles.len() == self.capacity);
         assert!(self.has_capacity());
-        self.in_use += 1;
+        self.running += 1;
+        // make task available to a thread.
     }
 
-    pub fn release(&mut self) {
-        assert!(self.in_use > 0);
-        self.in_use -= 1;
+    fn wait_for_task(&mut self) -> (NodeIndex, TaskResult) {
+        match self.receiver.recv() {
+            Ok(result) => {
+                self.running -= 1;
+                return result;
+            }
+            Err(_) => {
+                todo!("IMPL");
+            }
+        }
     }
 }
 
-#[derive(Debug, Default)]
-struct BuildState {
-    pub ready: VecDeque<NodeIndex>,
-    pub waiting: HashSet<NodeIndex>,
-    pub building: HashSet<NodeIndex>,
-
-    pub global_pool: Pool,
+impl Drop for RebuildPool {
+    fn drop(&mut self) {
+        todo!("IMPL");
+    }
 }
 
 #[derive(Debug)]
@@ -72,99 +114,59 @@ impl<'a> ParallelTopoScheduler<'a> {
     }
 }
 
-impl<'a> Scheduler<NodeIndex, TaskResult> for ParallelTopoScheduler<'a> {
-    fn schedule(&self, _rebuilder: &dyn Rebuilder<NodeIndex, TaskResult>, start: Vec<NodeIndex>) {
+impl<'a> Scheduler<NodeIndex, TaskResult, PendingProcess> for ParallelTopoScheduler<'a> {
+    type RunTask = NinjaTask;
+    fn schedule<'b>(&self, rebuilder: MyRebuilder<'b>, start: Vec<NodeIndex>) {
         let mut build_state: BuildState = Default::default();
-
         // Cannot use depth_first_search which doesn't say if it is postorder.
+        // Cannot use Topo since it doesn't offer move_to and partial traversals.
+        // TODO: So we really need to enforce no cycles here.
         let mut visitor = DfsPostOrder::empty(self.graph);
+        let mut build_order = Vec::new();
         for start in start {
             visitor.move_to(start);
             while let Some(node) = visitor.next(self.graph) {
+                // TODO: Do we really need this list?
+                // Seems like what we want is a PQ or something where things in earlier in the
+                // topo-sort show up first and then we peek and only pop if they are ready to be
+                // built or something.
+                // specifically, even though this DFS is useful to find the first few nodes
+                // to schedule, and calculates the topo-sort of the _reachable_ nodes, we can't
+                // actually act on that info beyond this point. Instead we need to just watch tasks
+                // finish, find their dependants and do a check for them.
+                build_order.push(node);
                 if self.graph.edges_directed(node, Direction::Outgoing).count() == 0 {
                     build_state.ready.push_back(node);
-                } else {
-                    build_state.waiting.insert(node);
                 }
             }
         }
 
-        loop {
-            if build_state.global_pool.has_capacity() {
-                if let Some(next) = build_state.ready.pop_front() {
-                    build_state.global_pool.acquire();
-                    // Rebuilder interface also needs to change to be more "async". Like build only
-                    // starts a task.
-                    rebuilder.build
+        let mut rebuild_pool = RebuildPool::new(8 /* TODO: CPU num */);
+
+        // It isn't exactly clear which parts of the build state belong exclusively to the
+        // scheduler, which to the rebuilder and which are shared, and how that affects mutable
+        // references/ownership.
+        while build_state.finished.len() < build_order.len() {
+            // Queue up any ready tasks if we have the capacity.
+            // There is no concern of a race here as the state can only change when we drive work.
+            if rebuild_pool.has_capacity() && !build_state.ready.is_empty() {
+                // Is there some invariant about ready that we can enforce?
+                let next = build_state.ready.pop_front().expect("item");
+                // TODO: Where to handle missing inputs
+                if let Some(task) = self.tasks.get(&next) {
+                    let task = rebuilder.build(next, TaskResult {}, task);
+                    rebuild_pool.build(next, task);
                 }
-            }
-        }
-
-        /*let has_capacity = || -> bool {
-            true // TODO: pools etc.
-        };
-
-        let schedule_work = || {
-            let node = ready.pop_front();
-            let task = self.tasks.get(&node);
-            if let Some(task) = task {
-                build_state.building.insert(node);
-                rebuilder.build(node, TaskResult {}, task.as_ref());
-            } else {
-                // input. we may want to check it actually exists on disk?
-                // OR that can be a task with a task result that we should insert.
-            }
-        };
-
-        let check_maybe_ready = |node| ->bool {
-            // some kind of counter associated with this.
-            // All of this is leading to some mutable state that the rebuilder should store, either
-            // in this function's scope (preferred) or as a member.
-            false
-        };
-
-        let mark_done = |node| {
-            assert!(building.contains(node));
-            // TODO: analyze the result for errors etc.
-            let dependents = self.graph.neighbors_directed(node, Direction::Incoming);
-            for dependent in dependents {
-                assert!(waiting.contains(dependent));
-                if check_maybe_ready(dependent) {
-                    ready.push_back(dependent);
-                }
-            }
-        }
-
-        loop {
-            if has_capacity() {
-                schedule_work();
                 continue;
             }
 
-            if let Some(node) = finished_task() {
-                mark_done(node);
-            }
-
-            // If we are all done, break.
-            if done() {
-                break;
-            }
+            // If we couldn't queue up anything more, wait until something finishes.
+            let (finished, result) = rebuild_pool.wait_for_task();
+            // TODO: Mark next task as finished.
+            build_state.finished.insert(finished, result);
         }
-        // TODO: How to model parallel task execution?
-        // At this point we know exactly which tasks to run, and in order of their dependencies,
-        // but as soon as we start running in parallel, we've to wait for the task for foo.o to
-        // finish before starting the task for foo, without relying on the serialization right
-        // here. So instead of doing a straight topo sort above, are we going back to a ninja style
-        // ready list? Alternatively we simply build up a Future tree while we are topologically
-        // sorting, then queue them up using a thread pool.
-        // As a thought experiment, if we did this from scratch, how would it work? We cannot
-        // submit work to the threadpool until it can actually be done. similarly, we need to hear
-        // back from the thread pool when work finishes so we can check if any tasks can be kicked
-        // off.
-        for node in order {
-            // if something.ready(node) {
-            // }
-        }*/
+
+        rebuild_pool.drop();
     }
 }
 

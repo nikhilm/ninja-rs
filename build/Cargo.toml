@@ -10,5 +10,4 @@ ninja-desc = { path = "../desc" }
 ninja-interface = { path = "../interface" }
 ninja-paths = { path = "../paths" }
 petgraph = "^0.5"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

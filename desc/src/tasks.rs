@@ -2,6 +2,7 @@ use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
 
 use ninja_interface::Task;
 // actually needs a buffer result or something.
+#[derive(Debug)]
 pub struct TaskResult {}
 
 #[derive(Debug)]
