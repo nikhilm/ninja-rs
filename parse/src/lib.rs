@@ -285,6 +285,7 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod parser_test {
     use super::Parser;
+    use insta::assert_debug_snapshot;
 
     #[test]
     fn test_simple() {
@@ -296,7 +297,8 @@ build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
         let parser = Parser::new(input.as_bytes(), None);
-        parser.parse().expect("valid parse");
+        let ast = parser.parse().expect("valid parse");
+        assert_debug_snapshot!(ast);
     }
 
     #[test]
@@ -367,7 +369,8 @@ rule touch
                 input
             );
             let parser = Parser::new(with_rule.as_bytes(), None);
-            let _ = parser.parse().expect("valid parse");
+            let ast = parser.parse().expect("valid parse");
+            assert_debug_snapshot!(ast);
         }
     }
 
