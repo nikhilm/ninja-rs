@@ -91,9 +91,7 @@ pub fn to_description(past: past::Description) -> Result<Description, Processing
     // 1. TODO evaluating all variables to final values.
     // let ast = evaluate(ast);
     // 2. canonicalizing paths.
-    let canonical = canonicalize(past)?;
-    eprintln!("YO {:?}", canonical);
-    Ok(canonical)
+    Ok(canonicalize(past)?)
 }
 
 #[cfg(test)]

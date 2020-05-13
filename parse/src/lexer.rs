@@ -118,8 +118,6 @@ impl<'a> Token<'a> {
     }
 }
 
-type ErrorHandler<'e> = Box<dyn FnMut(Position, &str) + 'e>;
-
 #[derive(Debug, PartialEq, Eq)]
 enum LexerMode {
     Default,
@@ -172,7 +170,7 @@ impl<'a> Lexer<'a> {
     }
     */
 
-    fn error(&mut self, pos: Pos, reason: &str) {
+    fn error(&mut self, _pos: Pos, _reason: &str) {
         self.error_count += 1;
     }
 

@@ -28,6 +28,7 @@ fn main() {
         }
         result.unwrap()
     };
+    eprintln!("ast {:?}", ast);
 
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
