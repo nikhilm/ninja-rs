@@ -1,6 +1,5 @@
 extern crate ninja_desc;
 extern crate ninja_interface;
-extern crate ninja_paths;
 extern crate petgraph;
 
 use std::collections::{HashMap, HashSet, VecDeque};

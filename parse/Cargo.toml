@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
-[dependencies]
-ninja-paths = { path = "../paths" }
-ninja-desc = { path = "../desc" }
-
 [dev-dependencies]
 insta = "^0.16.0"
 

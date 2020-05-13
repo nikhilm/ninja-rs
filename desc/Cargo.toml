@@ -5,10 +5,9 @@ authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-# TODO: Move build description somewhere nicer.
-ninja-paths = { path = "../paths" }
 ninja-interface = { path = "../interface" }
-
-petgraph = "^0.5"
+ninja-parse = { path = "../parse" }
+string-interner = "^0.7.1"
+thiserror = "^1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

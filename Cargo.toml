@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "build",
+    # Temporarily removed because it isn't going to cleanly build for a while.
+    # "build",
     "desc",
     "ninja",
     "parse",
-    "paths",
 ]

@@ -1,6 +1,5 @@
 use ninja_desc::{BuildGraph, Key, TaskResult};
 use ninja_interface::{Rebuilder, Task};
-use ninja_paths::PathCache;
 use std::{ffi::OsStr, fs::metadata, os::unix::ffi::OsStrExt};
 
 use petgraph::{graph::NodeIndex, Direction};
@@ -8,12 +7,11 @@ use petgraph::{graph::NodeIndex, Direction};
 #[derive(Debug)]
 pub struct MTimeRebuilder<'a> {
     graph: &'a BuildGraph,
-    path_cache: PathCache,
 }
 
 impl<'a> MTimeRebuilder<'a> {
-    pub fn new(graph: &BuildGraph, path_cache: PathCache) -> MTimeRebuilder {
-        MTimeRebuilder { graph, path_cache }
+    pub fn new(graph: &BuildGraph) -> MTimeRebuilder {
+        MTimeRebuilder { graph }
     }
 }
 
@@ -28,15 +26,18 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
         let key = &self.graph[node];
         let mtime = match key {
             Key::Path(path_ref) => {
-                let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
+                todo!();
+                /*let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
                 let path = std::path::Path::new(path_str);
                 if path.exists() {
                     Some(metadata(path).expect("metadata").modified().expect("mtime"))
                 } else {
                     None
-                }
+                }*/
             }
             Key::Multi(outputs) => {
+                todo!();
+                /*
                 // If the oldest output is older than any input, rebuild.
                 let times: Vec<std::time::SystemTime> = outputs
                     .iter()
@@ -56,6 +57,7 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
                 } else {
                     Some(times.into_iter().min().expect("at least one"))
                 }
+                */
             }
         };
         let dirty = if mtime.is_none() {
@@ -67,12 +69,15 @@ impl<'a> Rebuilder<NodeIndex, TaskResult> for MTimeRebuilder<'a> {
                 let dep = &self.graph[dep];
                 match dep {
                     Key::Path(path_ref) => {
+                        todo!();
+                        /*
                         let path_str: &OsStr = OsStrExt::from_bytes(self.path_cache.get(*path_ref));
                         let dep_mtime = metadata(path_str)
                             .expect("metadata")
                             .modified()
                             .expect("mtime");
                         dep_mtime > mtime
+                        */
                     }
                     Key::Multi(_) => {
                         // TODO: assert task is phony.

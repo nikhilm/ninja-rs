@@ -1,7 +1,5 @@
 #![feature(is_sorted)]
 
-extern crate ninja_desc;
-
 use std::fmt::{Display, Formatter};
 
 pub mod ast;

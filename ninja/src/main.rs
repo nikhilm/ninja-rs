@@ -1,41 +1,33 @@
-extern crate ninja_build;
 extern crate ninja_parse;
 extern crate petgraph;
 
-use ninja_build::{MTimeRebuilder, ParallelTopoScheduler};
-use ninja_interface::Scheduler;
+// use ninja_build::{MTimeRebuilder, ParallelTopoScheduler};
+// use ninja_interface::Scheduler;
+use ninja_desc::to_description;
 use ninja_parse::Parser;
-use petgraph::{graph::NodeIndex, Direction};
 
 fn main() {
     let start = "build.ninja";
     let input = std::fs::read(start).expect("build.ninja");
     let ast = {
         // TODO: Better error.
+        // 0. pulling in subninja and includes with correct scoping.
+        // TODO
         let result = Parser::new(&input, Some(start.to_owned())).parse();
         if let Err(e) = result {
             eprintln!("ninjars: {}", e);
-            std::process::exit(1)
+            std::process::exit(1);
         }
         result.unwrap()
     };
-    // Passes.
-    // 0. pulling in subninja and includes with correct scoping.
-    // TODO
-    // This should handle.
-    // 1. canonicalizing paths.
-    // let ast = canonicalize(ast);
-    // // 2. Validating no duplicate outputs.
-    // let ast = {
-    //     let result = validate_outputs(ast);
-    //     if let Err(e) = result {
-    //         eprintln!("ninjars: {}", e);
-    //         return 1;
-    //     }
-    //     result.unwrap()
-    // };
-    // // 3. evaluating all variables to final values.
-    // let ast = evaluate(ast);
+    let ast = {
+        let result = to_description(ast);
+        if let Err(e) = result {
+            eprintln!("ninjars: {}", e);
+            std::process::exit(1);
+        }
+        result.unwrap()
+    };
 
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
