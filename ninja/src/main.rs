@@ -7,15 +7,15 @@ use ninja_interface::Scheduler;
 use ninja_parse::Parser;
 use petgraph::{graph::NodeIndex, Direction};
 
-fn main() -> i32 {
+fn main() {
     let start = "build.ninja";
+    let input = std::fs::read(start).expect("build.ninja");
     let ast = {
         // TODO: Better error.
-        let input = std::fs::read(start).expect("build.ninja");
         let result = Parser::new(&input, Some(start.to_owned())).parse();
         if let Err(e) = result {
             eprintln!("ninjars: {}", e);
-            return 1;
+            std::process::exit(1)
         }
         result.unwrap()
     };

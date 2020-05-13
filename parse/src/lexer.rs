@@ -128,7 +128,7 @@ enum LexerMode {
     BuildRuleMode,
 }
 
-pub struct Lexer<'a, 'b> {
+pub struct Lexer<'a> {
     data: &'a [u8],
     filename: Option<String>,
     ch: u8,
@@ -137,29 +137,23 @@ pub struct Lexer<'a, 'b> {
     // consider using `smallvec` later.
     line_offsets: Vec<usize>,
     lexer_mode: LexerMode,
-    error_handler: Option<ErrorHandler<'b>>,
     pub error_count: u32,
 }
 
-impl<'a, 'b> Lexer<'a, 'b> {
-    pub fn new(
-        data: &'a [u8],
-        filename: Option<String>,
-        handler: Option<ErrorHandler<'b>>,
-    ) -> Lexer<'a, 'b> {
+impl<'a> Lexer<'a> {
+    pub fn new(data: &'a [u8], filename: Option<String>) -> Lexer<'a> {
         let mut ch = 0;
         if data.len() > 0 {
             ch = data[0];
         }
         Lexer {
-            data: data,
-            filename: filename,
-            ch: ch,
+            data,
+            filename,
+            ch,
             offset: 0,
             next_offset: 1,
             line_offsets: vec![0],
             lexer_mode: LexerMode::Default,
-            error_handler: handler,
             error_count: 0,
         }
     }
@@ -179,10 +173,6 @@ impl<'a, 'b> Lexer<'a, 'b> {
     */
 
     fn error(&mut self, pos: Pos, reason: &str) {
-        if self.error_handler.is_some() {
-            let pos = self.to_position(pos);
-            self.error_handler.as_mut().unwrap()(pos, reason);
-        }
         self.error_count += 1;
     }
 
@@ -428,7 +418,7 @@ impl<'a, 'b> Lexer<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Debug for Lexer<'a, 'b> {
+impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
         fmt.debug_struct("Lexer")
             .field("filename", &self.filename)
@@ -443,7 +433,7 @@ impl<'a, 'b> Debug for Lexer<'a, 'b> {
 
 type TokenPos<'a> = (Token<'a>, Pos);
 
-impl<'a, 'b> Iterator for Lexer<'a, 'b> {
+impl<'a> Iterator for Lexer<'a> {
     type Item = TokenPos<'a>;
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
@@ -537,7 +527,7 @@ mod test {
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
     fn parse_and_slice(input: &str) -> Vec<Token> {
-        let lexer = Lexer::new(input.as_bytes(), None, None);
+        let lexer = Lexer::new(input.as_bytes(), None);
         lexer.map(|(token, _pos)| token).collect::<Vec<Token>>()
     }
 
@@ -581,28 +571,9 @@ mod test {
     #[test]
     fn test_error_triggered() {
         // This interface is not very ergonomic...
-        let mut lexer = Lexer::new("pool )".as_bytes(), None, None);
+        let mut lexer = Lexer::new("pool )".as_bytes(), None);
         for _token in &mut lexer {}
         assert_eq!(lexer.error_count, 1);
-    }
-
-    #[test]
-    fn test_error_handler() {
-        let mut handler_called = 0;
-        {
-            let handler = |_pos: Position, _err: &str| {
-                // Now this would need a ref to the lexer again to translate the pos to a Position.
-                // Which, again, needs a better interface.
-                // fn error() already borrows as mutable, so it can't pass a reference here.
-                handler_called += 1;
-            };
-
-            // This interface is not very ergonomic...
-            let mut lexer = Lexer::new("pool )".as_bytes(), None, Some(Box::new(handler)));
-            for _token in &mut lexer {}
-            assert_eq!(lexer.error_count, 1);
-        }
-        assert_eq!(handler_called, 1);
     }
 
     #[test]
@@ -624,7 +595,7 @@ pool noodles"#;
             (35, Position::untitled(3, 12)),
         ];
 
-        let mut lexer = Lexer::new(input.as_bytes(), None, None);
+        let mut lexer = Lexer::new(input.as_bytes(), None);
         for _token in &mut lexer {}
         for (pos, expected) in table {
             assert_eq!(lexer.to_position(Pos(*pos)), *expected);

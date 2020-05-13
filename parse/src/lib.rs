@@ -2,42 +2,13 @@
 
 extern crate ninja_desc;
 
-use std::{
-    collections::HashMap,
-    fmt::{Display, Formatter},
-};
+use std::fmt::{Display, Formatter};
 
-use ninja_desc::Builder;
-
+pub mod ast;
 mod lexer;
 
+use ast::*;
 use lexer::{Lexer, Position, Token};
-
-// TODO:
-// var evaluation
-
-/// Right now a real simple container for rule lookup since we don't have anything except `command`
-/// and variable support.
-#[derive(Debug)]
-struct Env<'a> {
-    rules: HashMap<&'a [u8], Rule<'a>>,
-}
-
-impl<'a> Env<'a> {
-    fn new() -> Env<'a> {
-        Env {
-            rules: HashMap::new(),
-        }
-    }
-
-    fn add_rule(&mut self, rule: Rule<'a>) {
-        self.rules.insert(rule.name, rule);
-    }
-
-    fn lookup_rule<'b, S: Into<&'b [u8]>>(&self, name: S) -> Option<&Rule<'a>> {
-        self.rules.get(name.into())
-    }
-}
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -53,7 +24,7 @@ impl ParseError {
         // TODO: Invalid utf8 should trigger nice error.
         let owned_line = std::str::from_utf8(line).expect("utf8").to_owned();
         ParseError {
-            position: position,
+            position,
             line: owned_line,
             message: msg.into(),
         }
@@ -85,18 +56,14 @@ impl Display for ParseError {
     }
 }
 
-pub struct Parser<'a, 'b> {
-    lexer: Lexer<'a, 'b>,
-    env: Env<'a>,
-    builder: Builder,
+pub struct Parser<'a> {
+    lexer: Lexer<'a>,
 }
 
-impl<'a, 'b> Parser<'a, 'b> {
+impl<'a> Parser<'a> {
     pub fn new(input: &[u8], filename: Option<String>) -> Parser {
         Parser {
-            lexer: Lexer::new(input, filename, None),
-            env: Env::new(),
-            builder: Default::default(),
+            lexer: Lexer::new(input, filename),
         }
     }
 
@@ -177,23 +144,22 @@ impl<'a, 'b> Parser<'a, 'b> {
         Ok((var.value(), value.value()))
     }
 
-    fn parse_rule(&mut self) -> Result<(), ParseError> {
+    fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
         let identifier = self.expect_identifier()?;
         self.discard_newline()?;
-        // TODO: Do all the scoping and env stuff.
         self.discard_indent()?;
         let (var, value) = self.read_assignment()?;
+        // TODO: Move this to a semantic pass.
         if var != "command".as_bytes() {
             todo!("Don't know how to handle anything except command");
         }
-        self.env.add_rule(Rule {
+        Ok(Rule {
             name: identifier.value(),
             command: value,
-        });
-        Ok(())
+        })
     }
 
-    fn parse_build(&mut self) -> Result<(), ParseError> {
+    fn parse_build(&mut self) -> Result<Build<'a>, ParseError> {
         // TODO: Support all kinds of optional outputs and dependencies.
         #[derive(Debug, PartialEq, Eq)]
         enum State {
@@ -246,14 +212,7 @@ impl<'a, 'b> Parser<'a, 'b> {
                 },
                 State::ReadRule => match token {
                     Token::Identifier(v) => {
-                        rule = self.env.lookup_rule(v);
-                        if rule.is_none() {
-                            return Err(ParseError::new(
-                                format!("Unknown rule {}", token),
-                                pos,
-                                &self.lexer,
-                            ));
-                        }
+                        rule = Some(v);
                         state = State::ReadInputs;
                     }
                     _ => {
@@ -286,21 +245,11 @@ impl<'a, 'b> Parser<'a, 'b> {
 
         // EOF is OK as long as our state machine is done.
         if state == State::ReadInputs {
-            let result = self
-                .builder
-                .add_edge(inputs, outputs, rule.unwrap().command);
-            if let Err(conflict) = result {
-                Err(ParseError::new(
-                    format!(
-                        "Same output {} produced by multiple build edges",
-                        std::str::from_utf8(&conflict.0).expect("utf8"),
-                    ),
-                    first_line_pos.expect("a pos"),
-                    &self.lexer,
-                ))
-            } else {
-                Ok(())
-            }
+            Ok(Build {
+                rule: rule.take().unwrap(),
+                inputs,
+                outputs,
+            })
         } else {
             Err(ParseError::eof(
                 "unexpected EOF in the middle of a build edge",
@@ -309,23 +258,27 @@ impl<'a, 'b> Parser<'a, 'b> {
         }
     }
 
-    pub fn parse(mut self) -> Result<Builder, ParseError> {
+    pub fn parse(mut self) -> Result<Description<'a>, ParseError> {
+        let mut description = Description {
+            rules: Vec::new(),
+            builds: Vec::new(),
+        };
         while let Some((token, _pos)) = self.lexer.next() {
             match token {
                 Token::Rule => {
-                    self.parse_rule()?;
+                    description.rules.push(self.parse_rule()?);
                 }
                 Token::Build => {
-                    self.parse_build()?;
+                    description.builds.push(self.parse_build()?);
                 }
                 Token::Newline => {}
                 Token::Comment(_) => {}
                 _ => {
-                    eprintln!("Unhandled token {:?}", token);
+                    todo!("Unhandled token {:?}", token);
                 }
             }
         }
-        Ok(self.builder)
+        Ok(description)
     }
 }
 
