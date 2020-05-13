@@ -13,12 +13,6 @@ mod lexer;
 
 use lexer::{Lexer, Position, Token};
 
-#[derive(Debug)]
-struct Rule<'a> {
-    name: &'a [u8],
-    command: &'a [u8],
-}
-
 // TODO:
 // var evaluation
 

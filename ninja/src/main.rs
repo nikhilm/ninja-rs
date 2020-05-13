@@ -7,30 +7,52 @@ use ninja_interface::Scheduler;
 use ninja_parse::Parser;
 use petgraph::{graph::NodeIndex, Direction};
 
-fn main() {
+fn main() -> i32 {
     let start = "build.ninja";
-    let builder = {
+    let ast = {
         // TODO: Better error.
         let input = std::fs::read(start).expect("build.ninja");
         let result = Parser::new(&input, Some(start.to_owned())).parse();
         if let Err(e) = result {
             eprintln!("ninjars: {}", e);
-            return;
+            return 1;
         }
         result.unwrap()
     };
+    // Passes.
+    // 0. pulling in subninja and includes with correct scoping.
+    // TODO
+    // This should handle.
+    // 1. canonicalizing paths.
+    // let ast = canonicalize(ast);
+    // // 2. Validating no duplicate outputs.
+    // let ast = {
+    //     let result = validate_outputs(ast);
+    //     if let Err(e) = result {
+    //         eprintln!("ninjars: {}", e);
+    //         return 1;
+    //     }
+    //     result.unwrap()
+    // };
+    // // 3. evaluating all variables to final values.
+    // let ast = evaluate(ast);
+
+    // // at this point we should basically have a structure where all commands are fully expanded and
+    // // ready to go.
+    // let keys_to_tasks = ninja_task_creator(ast);
+
+    // Ready to build.
     // let _state = BuildLog::read();
-    // Tasks yields a ninja specific set of traits
-    // If we had an intermediate AST, we could break the parser's dependency on this.
-    // What we really want a pull pipeline, where a builder can take a parser, and may be a task
-    // creator and create the graph.
-    let (graph, tasks, path_cache) = builder.consume();
     //let mut store = DiskStore::new();
-    let rebuilder = MTimeRebuilder::new(&graph, path_cache);
-    let scheduler = ParallelTopoScheduler::new(&graph, tasks);
-    // TODO: Find starting nodes based on user input.
-    // TODO: Ideally this crate also would not depend on petgraph directly.
-    let start: Vec<NodeIndex> = graph.externals(Direction::Incoming).collect();
-    scheduler.schedule(&rebuilder, start);
+    // TODO: This can all hide behind the build constructor right?
+    // So this could be just a function according to the paper, as long as it followed a certain
+    // signature. Fn(k, v, task) -> Task
+    // let rebuilder = MTimeRebuilder::new(mod_times_oracle);
+    // let scheduler = ParallelTopoScheduler::new();
+    // // Made up, we likely don't want to go as Fn()y as haskell.
+    // let build = scheduler.to_build(rebuilder);
+    // let build = NinjaBuild::new(mod_times_oracle);
+    // let start = Start::All; // TODO: filter_keys();
+    //build.build(keys_to_tasks, start);
     // build log loading later
 }
