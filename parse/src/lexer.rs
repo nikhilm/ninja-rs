@@ -483,6 +483,7 @@ impl<'a> Iterator for Lexer<'a> {
                 // sense. Ninja is sensitive about that only in certain cases.
                 '\n' => {
                     self.record_line();
+                    self.lexer_mode = LexerMode::Default;
                     Some((Token::Newline, pos))
                 }
                 '=' => {
@@ -705,5 +706,34 @@ pool useful # another comment
                 Token::Indent
             ]
         );
+    }
+
+    #[test]
+    fn test_newline_when_path_expected() {
+        let res = parse_and_slice(
+            r#"rule touch
+    command = touch no_inputs.txt
+
+build no_inputs.txt: touch
+build next: touch"#,
+        );
+        assert_eq!(res[0], Token::Rule);
+        assert!(res[1].is_identifier());
+        assert_eq!(res[2], Token::Newline);
+        assert_eq!(res[3], Token::Indent);
+        assert!(res[4].is_identifier());
+        assert_eq!(res[5], Token::Equals);
+        assert!(res[6].is_literal());
+        assert_eq!(res[7], Token::Newline);
+        assert_eq!(res[8], Token::Newline);
+        assert_eq!(res[9], Token::Build);
+        assert!(res[10].is_path());
+        assert_eq!(res[11], Token::Colon);
+        assert!(res[12].is_identifier());
+        assert_eq!(res[13], Token::Newline);
+        assert_eq!(res[14], Token::Build);
+        assert!(res[15].is_path());
+        assert_eq!(res[16], Token::Colon);
+        assert!(res[17].is_identifier());
     }
 }
