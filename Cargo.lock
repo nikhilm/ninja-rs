@@ -116,6 +116,7 @@ dependencies = [
  "ninja-desc 0.1.0",
  "ninja-interface 0.1.0",
  "ninja-parse 0.1.0",
+ "ninja-tasks 0.1.0",
  "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -123,7 +124,6 @@ dependencies = [
 name = "ninja-desc"
 version = "0.1.0"
 dependencies = [
- "ninja-interface 0.1.0",
  "ninja-parse 0.1.0",
  "string-interner 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.16 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -138,6 +138,14 @@ name = "ninja-parse"
 version = "0.1.0"
 dependencies = [
  "insta 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ninja-tasks"
+version = "0.1.0"
+dependencies = [
+ "ninja-desc 0.1.0",
+ "thiserror 1.0.16 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

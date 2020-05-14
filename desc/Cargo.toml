@@ -5,7 +5,6 @@ authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-ninja-interface = { path = "../interface" }
 ninja-parse = { path = "../parse" }
 string-interner = "^0.7.1"
 thiserror = "^1.0"

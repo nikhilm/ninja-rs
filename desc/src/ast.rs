@@ -1,4 +1,4 @@
-use string_interner::{DefaultStringInterner, Sym};
+pub use string_interner::{DefaultStringInterner, Sym};
 // Paths are canonicalized and mapped to a cache
 // Rules are interned into indices.
 // This actually needs to come after the variable evaluation pass.
@@ -6,6 +6,12 @@ use string_interner::{DefaultStringInterner, Sym};
 pub struct Description {
     pub(crate) paths: DefaultStringInterner,
     pub(crate) builds: Vec<Build>,
+}
+
+impl Description {
+    pub fn consume(self) -> (DefaultStringInterner, Vec<Build>) {
+        (self.paths, self.builds)
+    }
 }
 
 #[derive(Debug)]
@@ -16,7 +22,7 @@ pub enum Action {
 
 #[derive(Debug)]
 pub struct Build {
-    pub(crate) action: Action,
-    pub(crate) inputs: Vec<Sym>,
-    pub(crate) outputs: Vec<Sym>,
+    pub action: Action,
+    pub inputs: Vec<Sym>,
+    pub outputs: Vec<Sym>,
 }

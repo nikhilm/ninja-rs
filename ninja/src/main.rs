@@ -5,6 +5,7 @@ extern crate petgraph;
 // use ninja_interface::Scheduler;
 use ninja_desc::to_description;
 use ninja_parse::Parser;
+use ninja_tasks::description_to_tasks;
 
 fn main() {
     let start = "build.ninja";
@@ -32,7 +33,14 @@ fn main() {
 
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
-    // let keys_to_tasks = ninja_task_creator(ast);
+    // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are
+    // specified in a different language, we do need a separate way to get the dependencies for a
+    // key.
+    // This should also deal with multiple output keys.
+    // Since each scheduler has additional execution strategies around async-ness for example, we
+    // don't spit out executable tasks, instead just having an enum.
+    let tasks = description_to_tasks(ast);
+    eprintln!("{}", tasks);
 
     // Ready to build.
     // let _state = BuildLog::read();

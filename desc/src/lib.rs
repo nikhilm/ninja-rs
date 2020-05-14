@@ -3,8 +3,8 @@ use string_interner::{DefaultStringInterner, Sym};
 use ninja_parse::ast as past;
 use thiserror::Error;
 
-mod ast;
-use ast::*;
+pub mod ast;
+pub use ast::*;
 use std::{
     collections::{hash_map::Entry, HashMap},
     str::Utf8Error,
@@ -57,18 +57,22 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
 
     let mut builds = Vec::with_capacity(past.builds.len());
     for build in past.builds {
-        let rule = rules.get(build.rule);
-        if let None = rule {
-            return Err(ProcessingError::UnknownRule(
-                std::str::from_utf8(build.rule)?.to_owned(),
-            ));
-        }
-        let rule = rule.unwrap();
-        builds.push(Build {
-            action: match rule.name {
+        let action = {
+            match build.rule {
                 [112, 104, 111, 110, 121] => Action::Phony,
-                _ => Action::Command(std::str::from_utf8(rule.name)?.to_owned()),
-            },
+                other => {
+                    let rule = rules.get(other);
+                    if let None = rule {
+                        return Err(ProcessingError::UnknownRule(
+                            std::str::from_utf8(other)?.to_owned(),
+                        ));
+                    }
+                    Action::Command(std::str::from_utf8(rule.unwrap().command)?.to_owned())
+                }
+            }
+        };
+        builds.push(Build {
+            action,
             inputs: build
                 .inputs
                 .into_iter()
