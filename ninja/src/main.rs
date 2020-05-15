@@ -29,7 +29,6 @@ fn main() {
         }
         result.unwrap()
     };
-    eprintln!("ast {:?}", ast);
 
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
@@ -40,7 +39,6 @@ fn main() {
     // Since each scheduler has additional execution strategies around async-ness for example, we
     // don't spit out executable tasks, instead just having an enum.
     let tasks = description_to_tasks(ast);
-    eprintln!("{}", tasks);
 
     // Ready to build.
     // let _state = BuildLog::read();
@@ -50,11 +48,11 @@ fn main() {
     // signature. Fn(k, v, task) -> Task
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
-    let mtime_state: MTimeState = Default::default();
+    let mtime_state: MTimeState = MTimeState::new(&tasks);
     let rebuilder: MTimeRebuilder = Default::default();
-    let scheduler: ParallelTopoScheduler<MTimeState> = Default::default();
+    let scheduler = ParallelTopoScheduler::new();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
-    build_externals(scheduler, rebuilder, tasks, mtime_state);
+    build_externals(scheduler, rebuilder, &tasks, mtime_state);
     // build log loading later
 }

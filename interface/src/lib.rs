@@ -2,7 +2,7 @@ use core::fmt::Debug;
 use ninja_tasks::{Task, Tasks};
 
 pub trait BuildTask<State, V> {
-    fn run(&self, state: &mut State) -> V;
+    fn run(&self, state: &State) -> V;
 }
 
 impl<State, V> Debug for dyn BuildTask<State, V> {
@@ -12,7 +12,12 @@ impl<State, V> Debug for dyn BuildTask<State, V> {
 }
 
 pub trait Rebuilder<K, V, State> {
-    fn build(&self, key: K, current_value: V, task: Task) -> Box<dyn BuildTask<State, V>>;
+    fn build<'a>(
+        &self,
+        key: K,
+        current_value: V,
+        task: &'a Task,
+    ) -> Box<dyn BuildTask<State, V> + 'a>;
 }
 
 pub trait Scheduler<K, V, State> {
@@ -20,13 +25,13 @@ pub trait Scheduler<K, V, State> {
         &self,
         rebuilder: &dyn Rebuilder<K, V, State>,
         state: State,
-        tasks: Tasks,
+        tasks: &Tasks,
         start: Vec<K>,
     );
     fn schedule_externals(
         &self,
         rebuilder: &dyn Rebuilder<K, V, State>,
         state: State,
-        tasks: Tasks,
+        tasks: &Tasks,
     );
 }

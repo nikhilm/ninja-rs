@@ -46,6 +46,7 @@ impl Task {
 
 pub type TasksMap = HashMap<Key, Task>;
 
+#[derive(Debug)]
 pub struct Tasks {
     paths: DefaultStringInterner,
     map: TasksMap,

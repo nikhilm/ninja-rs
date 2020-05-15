@@ -1,6 +1,6 @@
 extern crate petgraph;
 
-use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
+use std::collections::{hash_map::Entry, HashMap};
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
@@ -9,22 +9,30 @@ use ninja_interface::*;
 use ninja_tasks::{Key, Tasks};
 
 mod rebuilder;
+mod task;
 pub use rebuilder::{MTimeRebuilder, MTimeState};
 
 // Needs to be public for some weird reason.
 // This genericity is getting very wonky.
+#[derive(Debug)]
 pub struct TaskResult {}
-trait ParallelTopoTask<State>: BuildTask<State, TaskResult> {}
 
 type CompatibleRebuilder<'a, State> = &'a dyn Rebuilder<Key, TaskResult, State>;
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
 }
+
 impl<State> ParallelTopoScheduler<State> {
+    pub fn new() -> Self {
+        ParallelTopoScheduler {
+            _unused: std::marker::PhantomData::default(),
+        }
+    }
+
     fn build_graph(tasks: &Tasks) -> SchedulerGraph {
         let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
         let mut graph = SchedulerGraph::new();
@@ -55,8 +63,8 @@ impl<State> ParallelTopoScheduler<State> {
     fn schedule_internal(
         &self,
         rebuilder: CompatibleRebuilder<State>,
-        state: State,
-        tasks: Tasks,
+        mut state: State,
+        tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) {
         assert!(start.is_none(), "not implemented non-externals yet");
@@ -72,7 +80,6 @@ impl<State> ParallelTopoScheduler<State> {
         for start in externals {
             let key = graph[start];
             let path = tasks.path_for(key);
-            eprintln!("Build requested for {:?}", path);
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
                 // TODO: Do we really need this list?
@@ -95,14 +102,12 @@ impl<State> ParallelTopoScheduler<State> {
             // being able to get dependencies from a task instead of going back to the key. having
             // this notion of a store "context" in which this operates, so that the
             let key = graph[node];
-            let path = tasks.path_for(key);
-            eprintln!(
-                "Build {:?} with command {:?}",
-                path,
-                tasks.task(key).and_then(|t| t.command())
-            );
-            // let build_task = rebuilder.build(k, TaskResult {}, task);
-            // build_task.run();
+            if let Some(task) = tasks.task(key) {
+                if task.is_command() {
+                    let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
+                    build_task.run(&mut state);
+                }
+            }
         }
     }
 }
@@ -110,10 +115,10 @@ impl<State> ParallelTopoScheduler<State> {
 impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State> {
     fn schedule(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
-        state: State,
-        tasks: Tasks,
-        start: Vec<Key>,
+        _rebuilder: CompatibleRebuilder<State>,
+        _state: State,
+        _tasks: &Tasks,
+        _start: Vec<Key>,
     ) {
         todo!("Not implemented");
     }
@@ -122,7 +127,7 @@ impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State> {
         &self,
         rebuilder: CompatibleRebuilder<State>,
         state: State,
-        tasks: Tasks,
+        tasks: &Tasks,
     ) {
         self.schedule_internal(rebuilder, state, tasks, None);
     }
@@ -131,7 +136,7 @@ impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State> {
 pub fn build_externals<K, V, State>(
     scheduler: impl Scheduler<K, V, State>,
     rebuilder: impl Rebuilder<K, V, State>,
-    tasks: Tasks,
+    tasks: &Tasks,
     state: State,
 ) {
     &scheduler.schedule_externals(&rebuilder, state, tasks);
