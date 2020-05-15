@@ -1,7 +1,7 @@
 extern crate ninja_parse;
 extern crate petgraph;
 
-// use ninja_build::{MTimeRebuilder, ParallelTopoScheduler};
+use ninja_build::{build_externals, MTimeRebuilder, MTimeState, ParallelTopoScheduler};
 // use ninja_interface::Scheduler;
 use ninja_desc::to_description;
 use ninja_parse::Parser;
@@ -48,12 +48,13 @@ fn main() {
     // TODO: This can all hide behind the build constructor right?
     // So this could be just a function according to the paper, as long as it followed a certain
     // signature. Fn(k, v, task) -> Task
-    // let rebuilder = MTimeRebuilder::new(mod_times_oracle);
-    // let scheduler = ParallelTopoScheduler::new();
-    // // Made up, we likely don't want to go as Fn()y as haskell.
-    // let build = scheduler.to_build(rebuilder);
-    // let build = NinjaBuild::new(mod_times_oracle);
+    // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
+    // filesystem.
+    let mtime_state: MTimeState = Default::default();
+    let rebuilder: MTimeRebuilder = Default::default();
+    let scheduler: ParallelTopoScheduler<MTimeState> = Default::default();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
+    build_externals(scheduler, rebuilder, tasks, mtime_state);
     // build log loading later
 }

@@ -1,7 +1,7 @@
 [workspace]
 members = [
     # Temporarily removed because it isn't going to cleanly build for a while.
-    # "build",
+    "build",
     "desc",
     "tasks",
     "ninja",

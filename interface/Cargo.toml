@@ -4,3 +4,6 @@ version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
+[dependencies]
+# TODO: Possible to wrap behind generics/traits
+ninja-tasks = { path = "../tasks" }

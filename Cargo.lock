@@ -113,9 +113,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "ninja"
 version = "0.1.0"
 dependencies = [
+ "ninja-build 0.1.0",
  "ninja-desc 0.1.0",
  "ninja-interface 0.1.0",
  "ninja-parse 0.1.0",
+ "ninja-tasks 0.1.0",
+ "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ninja-build"
+version = "0.1.0"
+dependencies = [
+ "ninja-desc 0.1.0",
+ "ninja-interface 0.1.0",
  "ninja-tasks 0.1.0",
  "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -132,6 +143,9 @@ dependencies = [
 [[package]]
 name = "ninja-interface"
 version = "0.1.0"
+dependencies = [
+ "ninja-tasks 0.1.0",
+]
 
 [[package]]
 name = "ninja-parse"

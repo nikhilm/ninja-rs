@@ -8,5 +8,6 @@ edition = "2018"
 # TODO: Move build description somewhere nicer.
 ninja-desc = { path = "../desc" }
 ninja-interface = { path = "../interface" }
+ninja-tasks = { path = "../tasks" }
 petgraph = "^0.5"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
