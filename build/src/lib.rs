@@ -1,6 +1,6 @@
 extern crate petgraph;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
@@ -18,11 +18,40 @@ trait ParallelTopoTask<State>: BuildTask<State, TaskResult> {}
 
 type CompatibleRebuilder<'a, State> = &'a dyn Rebuilder<Key, TaskResult, State>;
 
+type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
+
 #[derive(Debug, Default)]
 pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
 }
 impl<State> ParallelTopoScheduler<State> {
+    fn build_graph(tasks: &Tasks) -> SchedulerGraph {
+        let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
+        let mut graph = SchedulerGraph::new();
+        fn add_or_get_node<'a>(
+            map: &mut HashMap<&'a Key, NodeIndex>,
+            graph: &mut SchedulerGraph<'a>,
+            key: &'a Key,
+        ) -> NodeIndex {
+            match map.entry(key) {
+                Entry::Vacant(e) => {
+                    let node = graph.add_node(key);
+                    e.insert(node);
+                    node
+                }
+                Entry::Occupied(e) => *e.get(),
+            }
+        }
+        for (key, task) in tasks.all_tasks() {
+            let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
+            for dep in task.dependencies() {
+                let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
+                graph.add_edge(source, dep_node, ());
+            }
+        }
+        graph
+    }
+
     fn schedule_internal(
         &self,
         rebuilder: CompatibleRebuilder<State>,
@@ -30,15 +59,22 @@ impl<State> ParallelTopoScheduler<State> {
         tasks: Tasks,
         start: Option<Vec<Key>>,
     ) {
+        assert!(start.is_none(), "not implemented non-externals yet");
+        // TODO: Ok we can finally build a graph here.
+        let graph = Self::build_graph(&tasks);
+
         // Cannot use depth_first_search which doesn't say if it is postorder.
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
         // TODO: So we really need to enforce no cycles here.
-        /*
-        let mut visitor = DfsPostOrder::empty(graph);
+        let mut visitor = DfsPostOrder::empty(&graph);
         let mut build_order = Vec::new();
-        for start in start {
+        let externals = graph.externals(Direction::Incoming);
+        for start in externals {
+            let key = graph[start];
+            let path = tasks.path_for(key);
+            eprintln!("Build requested for {:?}", path);
             visitor.move_to(start);
-            while let Some(node) = visitor.next(graph) {
+            while let Some(node) = visitor.next(&graph) {
                 // TODO: Do we really need this list?
                 // Seems like what we want is a PQ or something where things in earlier in the
                 // topo-sort show up first and then we peek and only pop if they are ready to be
@@ -54,14 +90,20 @@ impl<State> ParallelTopoScheduler<State> {
             }
         }
 
-        for task in build_order {
+        for node in build_order {
             // TODO: Parts of the interface that don't comply:
             // being able to get dependencies from a task instead of going back to the key. having
             // this notion of a store "context" in which this operates, so that the
-            let build_task = rebuilder.build(k, TaskResult {}, task);
-            build_task.run();
+            let key = graph[node];
+            let path = tasks.path_for(key);
+            eprintln!(
+                "Build {:?} with command {:?}",
+                path,
+                tasks.task(key).and_then(|t| t.command())
+            );
+            // let build_task = rebuilder.build(k, TaskResult {}, task);
+            // build_task.run();
         }
-        */
     }
 }
 
