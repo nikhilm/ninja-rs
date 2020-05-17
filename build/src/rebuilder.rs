@@ -1,7 +1,7 @@
 use super::TaskResult;
 use ninja_interface::{BuildTask, Rebuilder};
 use ninja_tasks::{Key, Task, Tasks};
-use std::{ffi::OsStr, fs::metadata, os::unix::ffi::OsStrExt, time::SystemTime};
+use std::{ffi::OsStr, fs::metadata, time::SystemTime};
 
 use crate::task::{CommandTask, NoopTask};
 
@@ -25,7 +25,7 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
     fn build(
         &self,
         key: Key,
-        current_value: TaskResult,
+        _current_value: TaskResult,
         task: &Task,
     ) -> Box<dyn BuildTask<(), TaskResult> + Send> {
         // This function obviously needs a lot of error handling.
@@ -71,7 +71,6 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
         } else {
             let mtime = mtime.unwrap();
             let dependencies = task.dependencies();
-            eprintln!("DEPS {:?}", dependencies);
             // We could use iter.any, but that will short circuit and not check every file for
             // existence. not sure what we want here.
             let bools: Vec<bool> = dependencies
@@ -79,7 +78,6 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
                 .map(|dep| match dep {
                     Key::Single(path_ref) => {
                         let path_str = self.tasks.path_for(&Key::Single(*path_ref)).unwrap();
-                        eprintln!("DEP {}", path_str);
                         let dep_mtime = metadata(path_str)
                             .expect(path_str)
                             .modified()

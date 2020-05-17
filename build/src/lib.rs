@@ -1,9 +1,9 @@
 extern crate petgraph;
 
-use crossbeam::scope;
+use crossbeam::{deque::Steal, scope};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    sync::mpsc::sync_channel,
+    sync::{atomic::Ordering},
 };
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
@@ -22,12 +22,18 @@ pub use rebuilder::{MTimeRebuilder, MTimeState};
 pub struct TaskResult {}
 
 type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State>);
+type CompatibleBuildTask<State> = Box<dyn BuildTask<State, TaskResult> + Send>;
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
 #[derive(Debug)]
 pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
+}
+
+enum QueueTask<State> {
+    Stop,
+    Task((NodeIndex, CompatibleBuildTask<State>)),
 }
 
 impl<State> ParallelTopoScheduler<State>
@@ -70,7 +76,7 @@ where
     fn schedule_internal(
         &self,
         rebuilder: CompatibleRebuilder<State>,
-        mut state: State,
+        state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) {
@@ -88,8 +94,7 @@ where
         let mut wanted = 0;
         for start in externals {
             let key = graph[start];
-            let path = tasks.path_for(key);
-            eprintln!("Requested {:?}", path);
+            let _path = tasks.path_for(key);
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
                 wanted += 1;
@@ -127,27 +132,46 @@ where
                     .neighbors_directed(dependent, Direction::Outgoing)
                     .all(|dependency| finished.contains(&dependency))
                 {
-                    eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
                     waiting_tasks.remove(&dependent);
                     ready.push_back(dependent);
                 }
             }
         };
+        const CAP: usize = 8;
+        let (tx, rx) = std::sync::mpsc::sync_channel(CAP);
+        // Non-stealing queue.
+        let job_deque: crossbeam::deque::Injector<QueueTask<State>> =
+            crossbeam::deque::Injector::new();
+        let running_jobs = std::sync::atomic::AtomicUsize::new(0);
         scope(|s| {
-            const CAP: usize = 8;
-            let mut running_handles = Vec::with_capacity(CAP);
+            for _ in 0..CAP {
+                // handles will be collected by the scope.
+                s.spawn(|_| loop {
+                    if let Steal::Success(task) = job_deque.steal() {
+                        match task {
+                            QueueTask::Stop => break,
+                            QueueTask::Task((node, task)) => {
+                                running_jobs.fetch_add(1, Ordering::SeqCst);
+                                let result = task.run(state_ref);
+                                // TODO: This unwrap can make the job count end up wrong.
+                                tx.send((node, result)).unwrap();
+                                running_jobs.fetch_sub(1, Ordering::SeqCst);
+                            }
+                        }
+                    }
+                });
+            }
+
             while finished.len() < wanted {
-                if running_handles.len() < CAP {
+                // Inherently racy.
+                if running_jobs.load(Ordering::Relaxed) < CAP {
                     // we have capacity.
                     if let Some(node) = ready.pop_front() {
                         let key = graph[node];
-                        eprintln!("{:?}", tasks.path_for(key));
                         if let Some(task) = tasks.task(key) {
                             let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
-                            let handle = s.spawn(move |_| (node, build_task.run(state_ref)));
-                            running_handles.push(handle);
+                            job_deque.push(QueueTask::Task((node, build_task)));
                         } else {
-                            eprintln!("No task for key");
                             finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                         }
                         // we were able to queue a task, so go back to the start of the loop.
@@ -155,13 +179,15 @@ where
                     }
                 }
 
-                // wait on a task.
-                // we need something like select! of course.
-                if running_handles.len() > 0 {
-                    let next_handle = running_handles.remove(0);
-                    let (node, _result) = next_handle.join().unwrap();
-                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
-                }
+                // we are either at full capacity, or can't make any progress on ready tasks, so
+                // wait for something to be done.
+                let (node, _result) = rx.recv().unwrap();
+                // This will update ready and finished, so we will have made progress.
+                finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+            }
+
+            for _ in 0..CAP {
+                job_deque.push(QueueTask::Stop);
             }
         })
         .unwrap();

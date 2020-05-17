@@ -96,7 +96,7 @@ impl Display for Tasks {
                 write_key(f, key)?;
                 write!(f, ", ")?;
             }
-            write!(f, "]\n");
+            write!(f, "]\n")?;
         }
         write!(f, "}}")
     }

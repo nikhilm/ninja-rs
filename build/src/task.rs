@@ -1,9 +1,8 @@
-use std::{ffi::OsStr, fs::metadata, process::Command, time::SystemTime};
+use std::process::Command;
 
 use ninja_interface::BuildTask;
-use ninja_tasks::{Key, Task};
 
-use crate::{rebuilder::MTimeState, TaskResult};
+use crate::TaskResult;
 
 pub trait ParallelTopoTask<State>: BuildTask<State, TaskResult>
 where
@@ -14,7 +13,7 @@ where
 #[derive(Debug)]
 pub struct NoopTask;
 impl BuildTask<(), TaskResult> for NoopTask {
-    fn run(&self, state: &()) -> TaskResult {
+    fn run(&self, _state: &()) -> TaskResult {
         TaskResult {}
     }
 }
