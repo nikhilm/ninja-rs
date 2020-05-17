@@ -133,23 +133,38 @@ where
                 }
             }
         };
-        // hmm... may have to also run the loop inside scope. but scope returns a value, and spawn
-        // does not, so not clear how to get values back out...
-        while finished.len() < wanted {
-            if let Some(node) = ready.pop_front() {
-                let key = graph[node];
-                eprintln!("{:?}", tasks.path_for(key));
-                if let Some(task) = tasks.task(key) {
-                    let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
-                    build_task.run(state_ref);
-                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
-                } else {
-                    eprintln!("No task for key");
+        scope(|s| {
+            const CAP: usize = 8;
+            let mut running_handles = Vec::with_capacity(CAP);
+            while finished.len() < wanted {
+                if running_handles.len() < CAP {
+                    // we have capacity.
+                    if let Some(node) = ready.pop_front() {
+                        let key = graph[node];
+                        eprintln!("{:?}", tasks.path_for(key));
+                        if let Some(task) = tasks.task(key) {
+                            let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
+                            let handle = s.spawn(move |_| (node, build_task.run(state_ref)));
+                            running_handles.push(handle);
+                        } else {
+                            eprintln!("No task for key");
+                            finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+                        }
+                        // we were able to queue a task, so go back to the start of the loop.
+                        continue;
+                    }
+                }
+
+                // wait on a task.
+                // we need something like select! of course.
+                if running_handles.len() > 0 {
+                    let next_handle = running_handles.remove(0);
+                    let (node, _result) = next_handle.join().unwrap();
                     finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                 }
-                continue;
             }
-        }
+        })
+        .unwrap();
     }
 }
 
