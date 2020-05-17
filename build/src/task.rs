@@ -20,12 +20,12 @@ impl BuildTask<(), TaskResult> for NoopTask {
 }
 
 #[derive(Debug)]
-pub struct CommandTask<'a> {
-    command: &'a str,
+pub struct CommandTask {
+    command: String,
 }
 
-impl<'a> CommandTask<'a> {
-    pub fn new(command: &'a str) -> CommandTask<'a> {
+impl CommandTask {
+    pub fn new(command: String) -> CommandTask {
         CommandTask { command }
     }
 
@@ -41,7 +41,7 @@ impl<'a> CommandTask<'a> {
     }
 }
 
-impl<'a> BuildTask<(), TaskResult> for CommandTask<'a> {
+impl BuildTask<(), TaskResult> for CommandTask {
     fn run(&self, _state: &()) -> TaskResult {
         self.run_command()
     }

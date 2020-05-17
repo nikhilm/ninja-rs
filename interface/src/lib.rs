@@ -22,12 +22,7 @@ pub trait Rebuilder<K, V, State>
 where
     State: Sync,
 {
-    fn build<'a>(
-        &self,
-        key: K,
-        current_value: V,
-        task: &'a Task,
-    ) -> Box<dyn BuildTask<State, V> + 'a + Send>;
+    fn build(&self, key: K, current_value: V, task: &Task) -> Box<dyn BuildTask<State, V> + Send>;
 }
 
 pub trait Scheduler<K, V, State>

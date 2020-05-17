@@ -22,12 +22,12 @@ impl<'a> MTimeRebuilder<'a> {
 }
 
 impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
-    fn build<'b>(
+    fn build(
         &self,
         key: Key,
         current_value: TaskResult,
-        task: &'b Task,
-    ) -> Box<dyn BuildTask<(), TaskResult> + 'b + Send> {
+        task: &Task,
+    ) -> Box<dyn BuildTask<(), TaskResult> + Send> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
         let mtime: Option<SystemTime> = match key.clone() {
@@ -101,7 +101,7 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Box::new(CommandTask::new(task.command().unwrap()))
+            Box::new(CommandTask::new(task.command().unwrap().clone()))
         } else {
             // TODO: current value?
             Box::new(NoopTask {})

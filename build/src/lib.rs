@@ -1,6 +1,6 @@
 extern crate petgraph;
 
-use rayon::scope;
+use crossbeam::scope;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::mpsc::sync_channel,
@@ -112,6 +112,27 @@ where
         let mut finished = HashSet::new();
 
         let state_ref = &state;
+
+        let finish_node = |node,
+                           finished: &mut HashSet<NodeIndex>,
+                           ready: &mut VecDeque<NodeIndex>,
+                           waiting_tasks: &mut HashSet<NodeIndex>| {
+            finished.insert(node);
+            // See if this freed up any pending tasks to run.
+            for dependent in graph.neighbors_directed(node, Direction::Incoming) {
+                if !waiting_tasks.contains(&dependent) {
+                    continue;
+                }
+                if graph
+                    .neighbors_directed(dependent, Direction::Outgoing)
+                    .all(|dependency| finished.contains(&dependency))
+                {
+                    eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
+                    waiting_tasks.remove(&dependent);
+                    ready.push_back(dependent);
+                }
+            }
+        };
         // hmm... may have to also run the loop inside scope. but scope returns a value, and spawn
         // does not, so not clear how to get values back out...
         while finished.len() < wanted {
@@ -121,57 +142,10 @@ where
                 if let Some(task) = tasks.task(key) {
                     let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
                     build_task.run(state_ref);
-                    finished.insert(node);
-                    eprintln!("Finished {:?}", tasks.path_for(key));
-                    // See if this freed up any pending tasks to run.
-                    for dependent in graph.neighbors_directed(node, Direction::Incoming) {
-                        if !waiting_tasks.contains(&dependent) {
-                            continue;
-                        }
-                        if graph
-                            .neighbors_directed(dependent, Direction::Outgoing)
-                            .all(|dependency| finished.contains(&dependency))
-                        {
-                            eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
-                            ready.push_back(dependent);
-                        }
-                    }
-                /*
-                let (tx, rx) = sync_channel(1);
-                    // Ridiculous! This scope blocks. All I want is a threadpool where i can
-                    // send a thread and then get a response back, including guaranteeing that
-                    // the entire pool is done.
-                    // we could put the whole loop inside a scope, maybe? but it still doesn't
-                    // let us ask questions like "can i queue more tasks here"? even in a racy
-                    // way.
-                let _ = scope(move |s| {
-                    eprintln!("Starting task on pool {:?}", task);
-                    s.spawn(move |_| {
-                        let result = build_task.run(state_ref);
-                        eprintln!("DONE task {:?}", result);
-                        // Oops this will block right now until we read.
-                        tx.send(result).unwrap();
-                    });
-                });
-                eprintln!("Task result {:?}", rx.recv().unwrap());
-                */
+                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                 } else {
                     eprintln!("No task for key");
-                    finished.insert(node);
-                    eprintln!("Finished {:?}", tasks.path_for(key));
-                    // See if this freed up any pending tasks to run.
-                    for dependent in graph.neighbors_directed(node, Direction::Incoming) {
-                        if !waiting_tasks.contains(&dependent) {
-                            continue;
-                        }
-                        if graph
-                            .neighbors_directed(dependent, Direction::Outgoing)
-                            .all(|dependency| finished.contains(&dependency))
-                        {
-                            eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
-                            ready.push_back(dependent);
-                        }
-                    }
+                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                 }
                 continue;
             }
