@@ -1,6 +1,10 @@
 extern crate petgraph;
 
-use std::collections::{hash_map::Entry, HashMap};
+use rayon::scope;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    sync::mpsc::sync_channel,
+};
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
@@ -17,7 +21,7 @@ pub use rebuilder::{MTimeRebuilder, MTimeState};
 #[derive(Debug)]
 pub struct TaskResult {}
 
-type CompatibleRebuilder<'a, State> = &'a dyn Rebuilder<Key, TaskResult, State>;
+type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State>);
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
@@ -26,7 +30,10 @@ pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
 }
 
-impl<State> ParallelTopoScheduler<State> {
+impl<State> ParallelTopoScheduler<State>
+where
+    State: Sync,
+{
     pub fn new() -> Self {
         ParallelTopoScheduler {
             _unused: std::marker::PhantomData::default(),
@@ -75,13 +82,17 @@ impl<State> ParallelTopoScheduler<State> {
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
         // TODO: So we really need to enforce no cycles here.
         let mut visitor = DfsPostOrder::empty(&graph);
-        let mut build_order = Vec::new();
+        let mut ready = VecDeque::new();
+        let mut waiting_tasks = HashSet::new();
         let externals = graph.externals(Direction::Incoming);
+        let mut wanted = 0;
         for start in externals {
             let key = graph[start];
             let path = tasks.path_for(key);
+            eprintln!("Requested {:?}", path);
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
+                wanted += 1;
                 // TODO: Do we really need this list?
                 // Seems like what we want is a PQ or something where things in earlier in the
                 // topo-sort show up first and then we peek and only pop if they are ready to be
@@ -90,29 +101,88 @@ impl<State> ParallelTopoScheduler<State> {
                 // to schedule, and calculates the topo-sort of the _reachable_ nodes, we can't
                 // actually act on that info beyond this point. Instead we need to just watch tasks
                 // finish, find their dependants and do a check for them.
-                build_order.push(node);
-                // if self.graph.edges_directed(node, Direction::Outgoing).count() == 0 {
-                //     build_state.ready.push_back(node);
-                // }
+                if graph.edges_directed(node, Direction::Outgoing).count() == 0 {
+                    ready.push_back(node);
+                } else {
+                    waiting_tasks.insert(node);
+                }
             }
         }
 
-        for node in build_order {
-            // TODO: Parts of the interface that don't comply:
-            // being able to get dependencies from a task instead of going back to the key. having
-            // this notion of a store "context" in which this operates, so that the
-            let key = graph[node];
-            if let Some(task) = tasks.task(key) {
-                if task.is_command() {
+        let mut finished = HashSet::new();
+
+        let state_ref = &state;
+        // hmm... may have to also run the loop inside scope. but scope returns a value, and spawn
+        // does not, so not clear how to get values back out...
+        while finished.len() < wanted {
+            if let Some(node) = ready.pop_front() {
+                let key = graph[node];
+                eprintln!("{:?}", tasks.path_for(key));
+                if let Some(task) = tasks.task(key) {
                     let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
-                    build_task.run(&mut state);
+                    build_task.run(state_ref);
+                    finished.insert(node);
+                    eprintln!("Finished {:?}", tasks.path_for(key));
+                    // See if this freed up any pending tasks to run.
+                    for dependent in graph.neighbors_directed(node, Direction::Incoming) {
+                        if !waiting_tasks.contains(&dependent) {
+                            continue;
+                        }
+                        if graph
+                            .neighbors_directed(dependent, Direction::Outgoing)
+                            .all(|dependency| finished.contains(&dependency))
+                        {
+                            eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
+                            ready.push_back(dependent);
+                        }
+                    }
+                /*
+                let (tx, rx) = sync_channel(1);
+                    // Ridiculous! This scope blocks. All I want is a threadpool where i can
+                    // send a thread and then get a response back, including guaranteeing that
+                    // the entire pool is done.
+                    // we could put the whole loop inside a scope, maybe? but it still doesn't
+                    // let us ask questions like "can i queue more tasks here"? even in a racy
+                    // way.
+                let _ = scope(move |s| {
+                    eprintln!("Starting task on pool {:?}", task);
+                    s.spawn(move |_| {
+                        let result = build_task.run(state_ref);
+                        eprintln!("DONE task {:?}", result);
+                        // Oops this will block right now until we read.
+                        tx.send(result).unwrap();
+                    });
+                });
+                eprintln!("Task result {:?}", rx.recv().unwrap());
+                */
+                } else {
+                    eprintln!("No task for key");
+                    finished.insert(node);
+                    eprintln!("Finished {:?}", tasks.path_for(key));
+                    // See if this freed up any pending tasks to run.
+                    for dependent in graph.neighbors_directed(node, Direction::Incoming) {
+                        if !waiting_tasks.contains(&dependent) {
+                            continue;
+                        }
+                        if graph
+                            .neighbors_directed(dependent, Direction::Outgoing)
+                            .all(|dependency| finished.contains(&dependency))
+                        {
+                            eprintln!("{:?} ready to go", tasks.path_for(graph[dependent]));
+                            ready.push_back(dependent);
+                        }
+                    }
                 }
+                continue;
             }
         }
     }
 }
 
-impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State> {
+impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State>
+where
+    State: Sync,
+{
     fn schedule(
         &self,
         _rebuilder: CompatibleRebuilder<State>,
@@ -138,6 +208,8 @@ pub fn build_externals<K, V, State>(
     rebuilder: impl Rebuilder<K, V, State>,
     tasks: &Tasks,
     state: State,
-) {
+) where
+    State: Sync,
+{
     &scheduler.schedule_externals(&rebuilder, state, tasks);
 }
