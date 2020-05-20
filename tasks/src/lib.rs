@@ -3,8 +3,17 @@ use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]
 pub enum Key {
-    Single(Sym),
-    Multi(Vec<Sym>),
+    Single(Vec<u8>),
+    Multi(Vec<Key>),
+}
+
+impl Key {
+    pub fn as_bytes(&self) -> &[u8] {
+        match *self {
+            Key::Single(ref bytes) => bytes,
+            _ => panic!("only works on Key::Single"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -48,18 +57,10 @@ pub type TasksMap = HashMap<Key, Task>;
 
 #[derive(Debug)]
 pub struct Tasks {
-    paths: DefaultStringInterner,
     map: TasksMap,
 }
 
 impl Tasks {
-    pub fn path_for(&self, key: &Key) -> Option<&str> {
-        match key {
-            Key::Single(s) => self.paths.resolve(*s),
-            Key::Multi(_) => None,
-        }
-    }
-
     pub fn task(&self, key: &Key) -> Option<&Task> {
         self.map.get(key)
     }
@@ -71,15 +72,21 @@ impl Tasks {
 
 impl Display for Tasks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let format_single = |key: &Key| -> String {
+            if let Key::Single(ref bytes) = key {
+                format!("{}", std::str::from_utf8(bytes).unwrap())
+            } else {
+                panic!("Should not come here");
+            }
+        };
+
         let write_key = |f: &mut std::fmt::Formatter<'_>, key: &Key| -> std::fmt::Result {
             match key {
-                Key::Single(sym) => write!(f, "{}", self.paths.resolve(*sym).unwrap()),
-                Key::Multi(syms) => write!(
+                Key::Single(_) => write!(f, "{}", format_single(key)),
+                Key::Multi(ref syms) => write!(
                     f,
                     "Multi{:?}",
-                    syms.iter()
-                        .map(|sym| self.paths.resolve(*sym).unwrap())
-                        .collect::<Vec<&str>>()
+                    syms.iter().map(format_single).collect::<Vec<String>>()
                 ),
             }
         };
@@ -102,30 +109,27 @@ impl Display for Tasks {
     }
 }
 
-fn sym_to_key(output: Sym) -> Key {
+fn sym_to_key(output: Vec<u8>) -> Key {
     Key::Single(output)
 }
 
-fn syms_to_key(mut outputs: Vec<Sym>) -> Key {
+fn syms_to_key(mut outputs: Vec<Vec<u8>>) -> Key {
     outputs.sort();
-    Key::Multi(outputs)
+    Key::Multi(outputs.iter().map(|o| sym_to_key(o.clone())).collect())
 }
 
 pub fn description_to_tasks(desc: Description) -> Tasks {
-    let (paths, builds) = desc.consume();
     let mut map: TasksMap = HashMap::new();
-    let mut deps: HashMap<Key, Vec<Key>> = HashMap::new();
     // Since no two build edges can produce any single output, they also cannot produce any
     // multi-outputs. This means every build's outputs are guaranteed to be unique and we may as
     // well create a new key for each.
-    for build in builds {
+    for build in desc.builds {
         let key = if build.outputs.len() == 1 {
-            sym_to_key(build.outputs[0])
+            sym_to_key((&build.outputs[0]).clone())
         } else {
             let main_key = syms_to_key(build.outputs);
-            if let Key::Multi(ref syms) = main_key {
-                for sym in syms {
-                    let key = sym_to_key(*sym);
+            if let Key::Multi(ref keys) = main_key {
+                for key in keys {
                     map.insert(
                         key.clone(),
                         Task {
@@ -133,8 +137,6 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
                             variant: TaskVariant::Retrieve,
                         },
                     );
-                    // TODO: Stop cloning.
-                    deps.insert(key, vec![main_key.clone()]);
                 }
             } else {
                 unreachable!();
@@ -153,5 +155,5 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
         );
     }
 
-    Tasks { paths, map }
+    Tasks { map }
 }

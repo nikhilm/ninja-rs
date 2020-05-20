@@ -3,7 +3,7 @@ extern crate petgraph;
 use crossbeam::{deque::Steal, scope};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    sync::{atomic::Ordering},
+    sync::atomic::Ordering,
 };
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
@@ -94,7 +94,6 @@ where
         let mut wanted = 0;
         for start in externals {
             let key = graph[start];
-            let _path = tasks.path_for(key);
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
                 wanted += 1;
@@ -137,12 +136,14 @@ where
                 }
             }
         };
+
         const CAP: usize = 8;
         let (tx, rx) = std::sync::mpsc::sync_channel(CAP);
         // Non-stealing queue.
         let job_deque: crossbeam::deque::Injector<QueueTask<State>> =
             crossbeam::deque::Injector::new();
         let running_jobs = std::sync::atomic::AtomicUsize::new(0);
+
         scope(|s| {
             for _ in 0..CAP {
                 // handles will be collected by the scope.

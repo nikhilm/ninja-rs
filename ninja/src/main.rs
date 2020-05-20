@@ -49,7 +49,7 @@ fn main() {
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
     let mtime_state = MTimeState {};
-    let rebuilder: MTimeRebuilder = MTimeRebuilder::new(mtime_state, &tasks);
+    let rebuilder: MTimeRebuilder = MTimeRebuilder::new(mtime_state);
     let scheduler = ParallelTopoScheduler::new();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);

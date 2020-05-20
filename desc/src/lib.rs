@@ -1,12 +1,10 @@
-use string_interner::{DefaultStringInterner, Sym};
-
 use ninja_parse::ast as past;
 use thiserror::Error;
 
 pub mod ast;
 pub use ast::*;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     str::Utf8Error,
 };
 
@@ -42,16 +40,17 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
     }
 
     // We process outputs first so duplicate detection can be done without confusing with inputs.
-    let mut paths = DefaultStringInterner::new();
+    let mut outputs_seen = HashSet::new();
     for build in &past.builds {
         for output in &build.outputs {
-            let name = std::str::from_utf8(output)?;
-            if let Some(_) = paths.get(name) {
+            if outputs_seen.contains(output) {
                 // TODO: Also add line/col information from token position, which isn't being preserved
                 // right now!
-                return Err(ProcessingError::DuplicateOutput(name.to_owned()));
+                return Err(ProcessingError::DuplicateOutput(
+                    std::str::from_utf8(output)?.to_owned(),
+                ));
             }
-            paths.get_or_intern(name);
+            outputs_seen.insert(output);
         }
     }
 
@@ -73,20 +72,12 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         };
         builds.push(Build {
             action,
-            inputs: build
-                .inputs
-                .into_iter()
-                .map(|p| std::str::from_utf8(p).map(|s| paths.get_or_intern(s)))
-                .collect::<Result<Vec<Sym>, Utf8Error>>()?,
-            outputs: build
-                .outputs
-                .into_iter()
-                .map(|p| std::str::from_utf8(p).map(|s| paths.get_or_intern(s)))
-                .collect::<Result<Vec<Sym>, Utf8Error>>()?,
+            inputs: build.inputs.iter().map(|i| i.to_vec()).collect(),
+            outputs: build.outputs.iter().map(|i| i.to_vec()).collect(),
         })
     }
 
-    Ok(Description { paths, builds })
+    Ok(Description { builds })
 }
 
 pub fn to_description(past: past::Description) -> Result<Description, ProcessingError> {

@@ -1,27 +1,34 @@
 use super::TaskResult;
 use ninja_interface::{BuildTask, Rebuilder};
-use ninja_tasks::{Key, Task, Tasks};
-use std::{ffi::OsStr, fs::metadata, time::SystemTime};
+use ninja_tasks::{Key, Task};
+use std::{
+    ffi::OsStr,
+    fs::metadata,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::task::{CommandTask, NoopTask};
 
-// Doesn't do anything right now, but we may want to cache mtimes.
+pub enum MTime {
+    Unknown,
+    Time(SystemTime),
+}
+
 #[derive(Debug, Default)]
 pub struct MTimeState;
 
 #[derive(Debug)]
-pub struct MTimeRebuilder<'a> {
+pub struct MTimeRebuilder {
     mtime_state: MTimeState,
-    tasks: &'a Tasks,
 }
 
-impl<'a> MTimeRebuilder<'a> {
-    pub fn new(mtime_state: MTimeState, tasks: &'a Tasks) -> Self {
-        Self { mtime_state, tasks }
+impl MTimeRebuilder {
+    pub fn new(mtime_state: MTimeState) -> Self {
+        Self { mtime_state }
     }
 }
 
-impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
+impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
     fn build(
         &self,
         key: Key,
@@ -32,27 +39,27 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
         // Only returns the command task if required, otherwise a dummy.
         let mtime: Option<SystemTime> = match key.clone() {
             Key::Single(_) => {
-                let path_str = self.tasks.path_for(&key).unwrap();
+                let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
                 let path_os: &OsStr = OsStr::new(path_str);
                 let path = std::path::Path::new(path_os);
                 if path.exists() {
                     Some(metadata(path).expect("metadata").modified().expect("mtime"))
                 } else {
-                    None
+                    Some(UNIX_EPOCH)
                 }
             }
             Key::Multi(syms) => {
                 // If the oldest output is older than any input, rebuild.
                 let times: Vec<std::time::SystemTime> = syms
                     .iter()
-                    .filter_map(|path_ref| {
-                        let path_str = self.tasks.path_for(&Key::Single(*path_ref)).unwrap();
+                    .filter_map(|key| {
+                        let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
                         let path_os: &OsStr = OsStr::new(path_str);
                         let path = std::path::Path::new(path_os);
                         if path.exists() {
                             Some(metadata(path).expect("metadata").modified().expect("mtime"))
                         } else {
-                            None
+                            Some(UNIX_EPOCH)
                         }
                     })
                     .collect();
@@ -66,31 +73,40 @@ impl<'a> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<'a> {
                 }
             }
         };
-        let dirty = if mtime.is_none() {
-            true
-        } else {
-            let mtime = mtime.unwrap();
-            let dependencies = task.dependencies();
-            // We could use iter.any, but that will short circuit and not check every file for
-            // existence. not sure what we want here.
-            let bools: Vec<bool> = dependencies
-                .iter()
-                .map(|dep| match dep {
-                    Key::Single(path_ref) => {
-                        let path_str = self.tasks.path_for(&Key::Single(*path_ref)).unwrap();
-                        let dep_mtime = metadata(path_str)
-                            .expect(path_str)
-                            .modified()
-                            .expect("mtime");
-                        dep_mtime > mtime
-                    }
-                    Key::Multi(_) => {
-                        assert!(task.is_retrieve());
-                        assert_eq!(dependencies.len(), 1);
+
+        // Iterate inputs to make sure they exist, regardless of what outputs were determined.
+        let dependencies = task.dependencies();
+        // We could use iter.any, but that will short circuit and not check every file for
+        // existence. not sure what we want here.
+        let bools: Vec<bool> = dependencies
+            .iter()
+            .map(|dep| match dep {
+                Key::Single(_) => {
+                    let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
+                    let result = metadata(path_str);
+                    if task.is_retrieve() {
+                        // It is OK for inputs to phony's to not exist.
                         false
+                    } else {
+                        let dep_mtime = result.expect(path_str).modified().expect("mtime");
+                        // If one of the outputs did not exist return true so the iterator check says
+                        // dirty.
+                        mtime.map(|m| dep_mtime > m).unwrap_or(true)
                     }
-                })
-                .collect();
+                }
+                Key::Multi(_) => {
+                    assert!(task.is_retrieve());
+                    assert_eq!(dependencies.len(), 1);
+                    // Never actually need to do a retrieval action.
+                    false
+                }
+            })
+            .collect();
+
+        let dirty = if bools.is_empty() {
+            // If there were no inputs, consider dirty if outputs were missing.
+            mtime.is_none()
+        } else {
             bools.iter().any(|b| *b)
         };
         if dirty && task.is_command() {
