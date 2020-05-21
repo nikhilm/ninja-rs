@@ -122,3 +122,9 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    // We need enough flexibility that we can test mock paths with mock mtimes and simulate the
+    // relevant results we want. It would be nice to feed that to the actual rebuilder build fn.
+}

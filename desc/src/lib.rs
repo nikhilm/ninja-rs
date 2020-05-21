@@ -21,9 +21,19 @@ pub enum ProcessingError {
     UnknownRule(String),
 }
 
+const PHONY: &[u8] = &[112, 104, 111, 110, 121];
+
 fn canonicalize(past: past::Description) -> Result<Description, ProcessingError> {
     // Using an interner that could accept bytes would allow us to not have to convert.
     let mut rules: HashMap<&[u8], past::Rule> = HashMap::with_capacity(past.rules.len());
+    // Insert built-in rules.
+    rules.insert(
+        PHONY,
+        past::Rule {
+            name: PHONY,
+            command: &[],
+        },
+    );
     for rule in past.rules {
         match rules.entry(rule.name) {
             Entry::Occupied(_) => {
@@ -90,9 +100,86 @@ pub fn to_description(past: past::Description) -> Result<Description, Processing
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
+    use super::{to_description, ProcessingError};
+    use ninja_parse::ast as past;
+
+    macro_rules! rule {
+        ($name:literal) => {
+            past::Rule {
+                name: $name.as_bytes(),
+                command: b"",
+            }
+        };
+        ($name:literal, $command:literal) => {
+            past::Rule {
+                name: $name.as_bytes(),
+                command: $command.as_bytes(),
+            }
+        };
+    }
+
+    /* macro_rules! build {
+        ($rule:literal) => {
+            past::Build {
+                rule: $rule.as_bytes(),
+                inputs: vec![],
+                outputs: vec![],
+            }
+        };
+        ($rule:literal, $command:expr) => {
+            past::Build {
+                rule: $rule.as_bytes(),
+                $command,
+            }
+        };
+    }*/
+
     #[test]
-    fn write_me() {
-        todo!();
+    fn no_rule_named_phony() {
+        let desc = past::Description {
+            rules: vec![rule!["phony"]],
+            builds: vec![],
+        };
+        let result = to_description(desc);
+        let err = result.unwrap_err();
+        assert!(matches!(err, ProcessingError::DuplicateRule(_)));
+    }
+
+    #[test]
+    fn err_duplicate_rule() {
+        let desc = past::Description {
+            rules: vec![
+                rule!("link", "link.exe"),
+                rule!("compile", "compile.exe"),
+                rule!("link", "link.exe"),
+            ],
+            builds: vec![],
+        };
+        let err = to_description(desc).unwrap_err();
+        assert!(matches!(err, ProcessingError::DuplicateRule(_)));
+    }
+
+    #[test]
+    fn duplicate_output() {
+        let desc = past::Description {
+            rules: vec![],
+            builds: vec![
+                past::Build {
+                    rule: "phony".as_bytes(),
+                    inputs: vec![],
+                    outputs: vec!["a.txt".as_bytes()],
+                },
+                past::Build {
+                    rule: "phony".as_bytes(),
+                    inputs: vec![],
+                    outputs: vec!["a.txt".as_bytes()],
+                },
+            ],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::DuplicateOutput(_)
+        ));
     }
 }
