@@ -45,7 +45,7 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
                 if path.exists() {
                     Some(metadata(path).expect("metadata").modified().expect("mtime"))
                 } else {
-                    Some(UNIX_EPOCH)
+                    None
                 }
             }
             Key::Multi(syms) => {
@@ -59,7 +59,7 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
                         if path.exists() {
                             Some(metadata(path).expect("metadata").modified().expect("mtime"))
                         } else {
-                            Some(UNIX_EPOCH)
+                            None
                         }
                     })
                     .collect();
@@ -67,7 +67,7 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
                     // At least one output did not exist, so always build.
                     // But... if we return None here, we will run the script w/o verifying that all
                     // inputs actually exist before running the command. So use this instead.
-                    Some(std::time::UNIX_EPOCH)
+                    None
                 } else {
                     Some(times.into_iter().min().expect("at least one"))
                 }
@@ -82,11 +82,16 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
             .iter()
             .map(|dep| match dep {
                 Key::Single(_) => {
-                    let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
+                    let path_str = std::str::from_utf8(dep.as_bytes()).unwrap();
                     let result = metadata(path_str);
-                    if task.is_retrieve() {
-                        // It is OK for inputs to phony's to not exist.
-                        false
+                    if result.is_err() {
+                        let e = result.unwrap_err();
+                        if e.kind() == std::io::ErrorKind::NotFound && task.is_retrieve() {
+                            // It is OK for inputs to phony's to not exist.
+                            false
+                        } else {
+                            panic!("oops what do i do here");
+                        }
                     } else {
                         let dep_mtime = result.expect(path_str).modified().expect("mtime");
                         // If one of the outputs did not exist return true so the iterator check says
@@ -103,11 +108,14 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
             })
             .collect();
 
-        let dirty = if bools.is_empty() {
-            // If there were no inputs, consider dirty if outputs were missing.
-            mtime.is_none()
-        } else {
-            bools.iter().any(|b| *b)
+        let dirty = mtime.is_none() || {
+            if bools.is_empty() {
+                // If there were no inputs, consider dirty if outputs were missing.
+                mtime.is_none()
+            } else {
+                let x = bools.iter().any(|b| *b);
+                x
+            }
         };
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the

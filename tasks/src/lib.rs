@@ -16,6 +16,25 @@ impl Key {
     }
 }
 
+impl Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Key::Single(v) => write!(
+                f,
+                "Key::Single({})",
+                std::str::from_utf8(v).map_err(|_| std::fmt::Error {})?
+            ),
+            Key::Multi(vs) => {
+                write!(f, "Key::Multi(")?;
+                for v in vs {
+                    write!(f, "{},", v)?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum TaskVariant {
     // Indicates that this key just depends on another, usually Multi key.
