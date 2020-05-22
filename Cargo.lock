@@ -219,6 +219,7 @@ dependencies = [
 name = "ninja-desc"
 version = "0.1.0"
 dependencies = [
+ "insta 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ninja-parse 0.1.0",
  "thiserror 1.0.16 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

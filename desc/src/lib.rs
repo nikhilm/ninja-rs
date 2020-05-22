@@ -101,6 +101,8 @@ pub fn to_description(past: past::Description) -> Result<Description, Processing
 
 #[cfg(test)]
 mod test {
+    use insta::assert_debug_snapshot;
+
     use super::{to_description, ProcessingError};
     use ninja_parse::ast as past;
 
@@ -118,22 +120,6 @@ mod test {
             }
         };
     }
-
-    /* macro_rules! build {
-        ($rule:literal) => {
-            past::Build {
-                rule: $rule.as_bytes(),
-                inputs: vec![],
-                outputs: vec![],
-            }
-        };
-        ($rule:literal, $command:expr) => {
-            past::Build {
-                rule: $rule.as_bytes(),
-                $command,
-            }
-        };
-    }*/
 
     #[test]
     fn no_rule_named_phony() {
@@ -166,14 +152,14 @@ mod test {
             rules: vec![],
             builds: vec![
                 past::Build {
-                    rule: "phony".as_bytes(),
+                    rule: b"phony",
                     inputs: vec![],
-                    outputs: vec!["a.txt".as_bytes()],
+                    outputs: vec![b"a.txt"],
                 },
                 past::Build {
-                    rule: "phony".as_bytes(),
+                    rule: b"phony",
                     inputs: vec![],
-                    outputs: vec!["a.txt".as_bytes()],
+                    outputs: vec![b"a.txt"],
                 },
             ],
         };
@@ -181,5 +167,74 @@ mod test {
             to_description(desc).unwrap_err(),
             ProcessingError::DuplicateOutput(_)
         ));
+    }
+
+    #[test]
+    fn duplicate_output2() {
+        let desc = past::Description {
+            rules: vec![],
+            builds: vec![
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![b"b.txt", b"a.txt"],
+                },
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![b"a.txt", b"c.txt"],
+                },
+            ],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::DuplicateOutput(_)
+        ));
+    }
+
+    #[test]
+    fn unknown_rule() {
+        let desc = past::Description {
+            rules: vec![],
+            builds: vec![past::Build {
+                rule: b"baloney",
+                inputs: vec![],
+                outputs: vec![b"a.txt"],
+            }],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::UnknownRule(_)
+        ));
+    }
+
+    #[test]
+    fn success() {
+        let desc = past::Description {
+            rules: vec![
+                rule!["link", "link.exe"],
+                rule!["cc", "clang"],
+                rule!["unused"],
+            ],
+            builds: vec![
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![b"source.txt"],
+                    outputs: vec![b"a.txt"],
+                },
+                past::Build {
+                    rule: b"cc",
+                    inputs: vec![b"hello.c", b"hello.h"],
+                    outputs: vec![b"hello.o"],
+                },
+                past::Build {
+                    rule: b"link",
+                    inputs: vec![b"hello.o", b"my_shared_lib.so"],
+                    outputs: vec![b"hello"],
+                },
+            ],
+        };
+        let ast = to_description(desc).unwrap();
+        assert_debug_snapshot!(ast);
     }
 }
