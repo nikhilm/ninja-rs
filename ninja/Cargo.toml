@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 ninja-parse = { path = "../parse" }
 ninja-build = { path = "../build" }
-ninja-interface = { path = "../interface" }
 ninja-desc = { path = "../desc" }
 ninja-tasks = { path = "../tasks" }
 

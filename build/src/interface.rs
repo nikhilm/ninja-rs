@@ -8,7 +8,7 @@ where
 {
     fn run(&self, state: &State) -> V;
 
-    #[cfg(feature = "testing")]
+    #[cfg(test)]
     fn is_command(&self) -> bool {
         false
     }

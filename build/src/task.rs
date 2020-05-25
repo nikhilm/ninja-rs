@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use ninja_interface::BuildTask;
+use crate::interface::BuildTask;
 
 use crate::TaskResult;
 
@@ -45,7 +45,7 @@ impl BuildTask<(), TaskResult> for CommandTask {
         self.run_command()
     }
 
-    #[cfg(all(feature = "testing", test))]
+    #[cfg(test)]
     fn is_command(&self) -> bool {
         true
     }

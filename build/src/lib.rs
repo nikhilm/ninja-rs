@@ -9,12 +9,15 @@ use std::{
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
 // use ninja_desc::{BuildGraph, TaskResult, TasksMap};
-use ninja_interface::*;
 use ninja_tasks::{Key, Tasks};
 
 pub mod disk_interface;
+mod interface;
 mod rebuilder;
 mod task;
+
+use disk_interface::SystemDiskInterface;
+use interface::*;
 pub use rebuilder::{MTimeRebuilder, MTimeState};
 
 // Needs to be public for some weird reason.
@@ -229,4 +232,8 @@ pub fn build_externals<K, V, State>(
     State: Sync,
 {
     &scheduler.schedule_externals(&rebuilder, state, tasks);
+}
+
+pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {
+    MTimeState::new(SystemDiskInterface {})
 }

@@ -1,7 +1,9 @@
 extern crate ninja_parse;
 extern crate petgraph;
 
-use ninja_build::{build_externals, MTimeRebuilder, MTimeState, ParallelTopoScheduler};
+use ninja_build::{
+    build_externals, default_mtimestate, MTimeRebuilder, MTimeState, ParallelTopoScheduler,
+};
 // use ninja_interface::Scheduler;
 use ninja_desc::to_description;
 use ninja_parse::Parser;
@@ -48,8 +50,7 @@ fn main() {
     // signature. Fn(k, v, task) -> Task
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
-    let mtime_state = MTimeState {};
-    let rebuilder: MTimeRebuilder = MTimeRebuilder::new(mtime_state);
+    let rebuilder: MTimeRebuilder<_> = MTimeRebuilder::new(default_mtimestate());
     let scheduler = ParallelTopoScheduler::new();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);

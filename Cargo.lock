@@ -198,7 +198,6 @@ version = "0.1.0"
 dependencies = [
  "ninja-build 0.1.0",
  "ninja-desc 0.1.0",
- "ninja-interface 0.1.0",
  "ninja-parse 0.1.0",
  "ninja-tasks 0.1.0",
  "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -210,7 +209,6 @@ version = "0.1.0"
 dependencies = [
  "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ninja-desc 0.1.0",
- "ninja-interface 0.1.0",
  "ninja-tasks 0.1.0",
  "petgraph 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -222,13 +220,6 @@ dependencies = [
  "insta 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ninja-parse 0.1.0",
  "thiserror 1.0.16 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "ninja-interface"
-version = "0.1.0"
-dependencies = [
- "ninja-tasks 0.1.0",
 ]
 
 [[package]]

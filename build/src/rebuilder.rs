@@ -1,5 +1,4 @@
 use super::TaskResult;
-use ninja_interface::{BuildTask, Rebuilder};
 use ninja_tasks::{Key, Task};
 use std::{
     ffi::OsStr,
@@ -12,6 +11,7 @@ use std::os::unix::ffi::OsStrExt;
 
 use crate::{
     disk_interface::DiskInterface,
+    interface::{BuildTask, Rebuilder},
     task::{CommandTask, NoopTask},
 };
 use std::io::Result;
@@ -127,6 +127,7 @@ where
                 x
             }
         };
+        eprintln!("dirty? {}", dirty);
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
             // dependency is not available.
@@ -178,6 +179,7 @@ mod test {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
+        eprintln!("Task is command {}", task.is_command());
         let task = rebuilder.build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task);
         assert!(task.is_command());
     }
