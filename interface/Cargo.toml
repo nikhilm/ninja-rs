@@ -7,3 +7,6 @@ edition = "2018"
 [dependencies]
 # TODO: Possible to wrap behind generics/traits
 ninja-tasks = { path = "../tasks" }
+
+[features]
+testing = []

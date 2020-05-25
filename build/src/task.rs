@@ -44,4 +44,9 @@ impl BuildTask<(), TaskResult> for CommandTask {
     fn run(&self, _state: &()) -> TaskResult {
         self.run_command()
     }
+
+    #[cfg(all(feature = "testing", test))]
+    fn is_command(&self) -> bool {
+        true
+    }
 }

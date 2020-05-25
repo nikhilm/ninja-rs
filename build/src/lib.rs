@@ -12,6 +12,7 @@ use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 use ninja_interface::*;
 use ninja_tasks::{Key, Tasks};
 
+pub mod disk_interface;
 mod rebuilder;
 mod task;
 pub use rebuilder::{MTimeRebuilder, MTimeState};

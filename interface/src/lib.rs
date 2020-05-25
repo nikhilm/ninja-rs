@@ -7,6 +7,11 @@ where
     V: Send,
 {
     fn run(&self, state: &State) -> V;
+
+    #[cfg(feature = "testing")]
+    fn is_command(&self) -> bool {
+        false
+    }
 }
 
 impl<State, V> Debug for dyn BuildTask<State, V>

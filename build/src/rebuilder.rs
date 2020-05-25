@@ -4,31 +4,70 @@ use ninja_tasks::{Key, Task};
 use std::{
     ffi::OsStr,
     fs::metadata,
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::task::{CommandTask, NoopTask};
+use std::os::unix::ffi::OsStrExt;
 
-pub enum MTime {
-    Unknown,
-    Time(SystemTime),
-}
+use crate::{
+    disk_interface::DiskInterface,
+    task::{CommandTask, NoopTask},
+};
+use std::io::Result;
 
 #[derive(Debug, Default)]
-pub struct MTimeState;
-
-#[derive(Debug)]
-pub struct MTimeRebuilder {
-    mtime_state: MTimeState,
+pub struct MTimeState<Disk>
+where
+    Disk: DiskInterface,
+{
+    disk: Disk,
 }
 
-impl MTimeRebuilder {
-    pub fn new(mtime_state: MTimeState) -> Self {
+impl<Disk> MTimeState<Disk>
+where
+    Disk: DiskInterface,
+{
+    pub fn new(disk: Disk) -> Self {
+        MTimeState { disk }
+    }
+
+    pub fn modified(&self, key: Key) -> Result<Option<SystemTime>> {
+        // TODO: Cache
+        self.disk
+            .modified(OsStr::from_bytes(key.as_bytes()))
+            .map(|x| Some(x))
+            .or_else(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            })
+    }
+}
+
+#[derive(Debug)]
+pub struct MTimeRebuilder<Disk>
+where
+    Disk: DiskInterface,
+{
+    mtime_state: MTimeState<Disk>,
+}
+
+impl<Disk> MTimeRebuilder<Disk>
+where
+    Disk: DiskInterface,
+{
+    pub fn new(mtime_state: MTimeState<Disk>) -> Self {
         Self { mtime_state }
     }
 }
 
-impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
+impl<Disk> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<Disk>
+where
+    Disk: DiskInterface,
+{
     fn build(
         &self,
         key: Key,
@@ -38,32 +77,14 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
         let mtime: Option<SystemTime> = match key.clone() {
-            Key::Single(_) => {
-                let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
-                let path_os: &OsStr = OsStr::new(path_str);
-                let path = std::path::Path::new(path_os);
-                if path.exists() {
-                    Some(metadata(path).expect("metadata").modified().expect("mtime"))
-                } else {
-                    None
-                }
-            }
-            Key::Multi(syms) => {
+            key @ Key::Single(_) => self.mtime_state.modified(key).expect("TODO"),
+            Key::Multi(keys) => {
                 // If the oldest output is older than any input, rebuild.
-                let times: Vec<std::time::SystemTime> = syms
+                let times: Vec<std::time::SystemTime> = keys
                     .iter()
-                    .filter_map(|key| {
-                        let path_str = std::str::from_utf8(key.as_bytes()).unwrap();
-                        let path_os: &OsStr = OsStr::new(path_str);
-                        let path = std::path::Path::new(path_os);
-                        if path.exists() {
-                            Some(metadata(path).expect("metadata").modified().expect("mtime"))
-                        } else {
-                            None
-                        }
-                    })
+                    .filter_map(|key| self.mtime_state.modified(key.clone()).expect("TODO"))
                     .collect();
-                if times.len() < syms.len() {
+                if times.len() < keys.len() {
                     // At least one output did not exist, so always build.
                     // But... if we return None here, we will run the script w/o verifying that all
                     // inputs actually exist before running the command. So use this instead.
@@ -81,23 +102,12 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
         let bools: Vec<bool> = dependencies
             .iter()
             .map(|dep| match dep {
-                Key::Single(_) => {
-                    let path_str = std::str::from_utf8(dep.as_bytes()).unwrap();
-                    let result = metadata(path_str);
-                    if result.is_err() {
-                        let e = result.unwrap_err();
-                        if e.kind() == std::io::ErrorKind::NotFound && task.is_retrieve() {
-                            // It is OK for inputs to phony's to not exist.
-                            false
-                        } else {
-                            panic!("oops what do i do here");
-                        }
-                    } else {
-                        let dep_mtime = result.expect(path_str).modified().expect("mtime");
-                        // If one of the outputs did not exist return true so the iterator check says
-                        // dirty.
-                        mtime.map(|m| dep_mtime > m).unwrap_or(true)
-                    }
+                key @ Key::Single(_) => {
+                    let dep_mtime = self.mtime_state.modified(key.clone()).expect("TODO");
+                    dep_mtime
+                        .and_then(|dep_mtime| mtime.map(|m| dep_mtime > m))
+                        .or_else(|| Some(false))
+                        .unwrap_or(true)
                 }
                 Key::Multi(_) => {
                     assert!(task.is_retrieve());
@@ -133,6 +143,53 @@ impl Rebuilder<Key, TaskResult, ()> for MTimeRebuilder {
 
 #[cfg(test)]
 mod test {
+    use std::{
+        collections::HashMap,
+        io::{Error, ErrorKind, Result},
+        path::PathBuf,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+    use ninja_tasks::*;
+
     // We need enough flexibility that we can test mock paths with mock mtimes and simulate the
     // relevant results we want. It would be nice to feed that to the actual rebuilder build fn.
+    #[test]
+    fn test_basic() {
+        struct MockDiskInterface {}
+
+        impl DiskInterface for MockDiskInterface {
+            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+                if p.as_ref() == Path::new("foo.c") {
+                    Ok(UNIX_EPOCH.checked_add(Duration::from_secs(100)).unwrap())
+                } else {
+                    Err(Error::new(ErrorKind::NotFound, "mock not found"))
+                }
+            }
+        }
+
+        // TODO: Starting point for making the rebuilder depend more on the state and "fixing"
+        // the state to be more trait-y as well as not always depend on IO.
+        let mock_disk = MockDiskInterface {};
+        let state = MTimeState::new(mock_disk);
+        let rebuilder = MTimeRebuilder::new(state);
+        let task = Task {
+            dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            variant: TaskVariant::Command("cc -c foo.c".to_owned()),
+        };
+        let task = rebuilder.build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task);
+        assert!(task.is_command());
+    }
+
+    /// A phony rule where the input does not exist should fail.
+    #[test]
+    fn test_phony_compatibility1() {
+        // let task = Task {
+        //     dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+        //     variant: TaskVariant::Retrieve,
+        // };
+        // let task = rebuilder.build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task);
+        // assert!(task.is_command());
+    }
 }

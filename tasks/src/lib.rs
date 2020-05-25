@@ -47,8 +47,8 @@ pub type Dependencies = Vec<Key>;
 
 #[derive(Debug)]
 pub struct Task {
-    dependencies: Dependencies,
-    variant: TaskVariant,
+    pub dependencies: Dependencies,
+    pub variant: TaskVariant,
 }
 
 impl Task {
