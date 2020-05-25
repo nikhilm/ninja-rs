@@ -23,27 +23,32 @@ where
     }
 }
 
-pub trait Rebuilder<K, V, State>
+pub trait Rebuilder<K, V, State, BuildError>
 where
     State: Sync,
 {
-    fn build(&self, key: K, current_value: V, task: &Task) -> Box<dyn BuildTask<State, V> + Send>;
+    fn build(
+        &self,
+        key: K,
+        current_value: V,
+        task: &Task,
+    ) -> Result<Box<dyn BuildTask<State, V> + Send>, BuildError>;
 }
 
-pub trait Scheduler<K, V, State>
+pub trait Scheduler<K, V, State, BuildError>
 where
     State: Sync,
 {
     fn schedule(
         &self,
-        rebuilder: &dyn Rebuilder<K, V, State>,
+        rebuilder: &dyn Rebuilder<K, V, State, BuildError>,
         state: State,
         tasks: &Tasks,
         start: Vec<K>,
     );
     fn schedule_externals(
         &self,
-        rebuilder: &dyn Rebuilder<K, V, State>,
+        rebuilder: &dyn Rebuilder<K, V, State, BuildError>,
         state: State,
         tasks: &Tasks,
     );

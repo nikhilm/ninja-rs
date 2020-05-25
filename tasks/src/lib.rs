@@ -37,6 +37,7 @@ impl Display for Key {
 
 #[derive(Debug)]
 pub enum TaskVariant {
+    Source,
     // Indicates that this key just depends on another, usually Multi key.
     // Also used to map Phony.
     Retrieve,
@@ -66,8 +67,8 @@ impl Task {
 
     pub fn command(&self) -> Option<&String> {
         match self.variant {
-            TaskVariant::Retrieve => None,
             TaskVariant::Command(ref s) => Some(s),
+            _ => None,
         }
     }
 }

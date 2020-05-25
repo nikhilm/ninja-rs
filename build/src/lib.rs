@@ -18,14 +18,14 @@ mod task;
 
 use disk_interface::SystemDiskInterface;
 use interface::*;
-pub use rebuilder::{MTimeRebuilder, MTimeState};
+pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
 
 // Needs to be public for some weird reason.
 // This genericity is getting very wonky.
 #[derive(Debug)]
 pub struct TaskResult {}
 
-type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State>);
+type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State, RebuilderError>);
 type CompatibleBuildTask<State> = Box<dyn BuildTask<State, TaskResult> + Send>;
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
@@ -174,7 +174,10 @@ where
                     if let Some(node) = ready.pop_front() {
                         let key = graph[node];
                         if let Some(task) = tasks.task(key) {
-                            let build_task = rebuilder.build(key.clone(), TaskResult {}, task);
+                            // TODO: handle error
+                            let build_task = rebuilder
+                                .build(key.clone(), TaskResult {}, task)
+                                .expect("valid task");
                             job_deque.push(QueueTask::Task((node, build_task)));
                         } else {
                             finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
@@ -199,7 +202,7 @@ where
     }
 }
 
-impl<State> Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State>
+impl<State> Scheduler<Key, TaskResult, State, RebuilderError> for ParallelTopoScheduler<State>
 where
     State: Sync,
 {
@@ -224,8 +227,8 @@ where
 }
 
 pub fn build_externals<K, V, State>(
-    scheduler: impl Scheduler<K, V, State>,
-    rebuilder: impl Rebuilder<K, V, State>,
+    scheduler: impl Scheduler<K, V, State, RebuilderError>,
+    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
     tasks: &Tasks,
     state: State,
 ) where

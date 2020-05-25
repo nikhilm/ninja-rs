@@ -4,8 +4,10 @@ use std::{
     ffi::OsStr,
     fs::metadata,
     path::Path,
+    string::FromUtf8Error,
     time::{SystemTime, UNIX_EPOCH},
 };
+use thiserror::Error;
 
 use std::os::unix::ffi::OsStrExt;
 
@@ -14,7 +16,6 @@ use crate::{
     interface::{BuildTask, Rebuilder},
     task::{CommandTask, NoopTask},
 };
-use std::io::Result;
 
 #[derive(Debug, Default)]
 pub struct MTimeState<Disk>
@@ -32,7 +33,7 @@ where
         MTimeState { disk }
     }
 
-    pub fn modified(&self, key: Key) -> Result<Option<SystemTime>> {
+    pub fn modified(&self, key: Key) -> std::io::Result<Option<SystemTime>> {
         // TODO: Cache
         self.disk
             .modified(OsStr::from_bytes(key.as_bytes()))
@@ -64,7 +65,15 @@ where
     }
 }
 
-impl<Disk> Rebuilder<Key, TaskResult, ()> for MTimeRebuilder<Disk>
+#[derive(Error, Debug)]
+pub enum RebuilderError {
+    #[error("utf-8 error")]
+    Utf8Error(#[from] FromUtf8Error),
+    #[error("'{input}', needed by '{output}', missing and no known rule to make it")]
+    MissingInput { output: String, input: String },
+}
+
+impl<Disk> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<Disk>
 where
     Disk: DiskInterface,
 {
@@ -73,7 +82,7 @@ where
         key: Key,
         _current_value: TaskResult,
         task: &Task,
-    ) -> Box<dyn BuildTask<(), TaskResult> + Send> {
+    ) -> Result<Box<dyn BuildTask<(), TaskResult> + Send>, RebuilderError> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
         let mtime: Option<SystemTime> = match key.clone() {
@@ -99,24 +108,35 @@ where
         let dependencies = task.dependencies();
         // We could use iter.any, but that will short circuit and not check every file for
         // existence. not sure what we want here.
-        let bools: Vec<bool> = dependencies
+        let bools: std::result::Result<Vec<bool>, RebuilderError> = dependencies
             .iter()
             .map(|dep| match dep {
-                key @ Key::Single(_) => {
-                    let dep_mtime = self.mtime_state.modified(key.clone()).expect("TODO");
-                    dep_mtime
+                Key::Single(ref dep_bytes) => {
+                    let dep_mtime = self.mtime_state.modified(dep.clone()).expect("TODO");
+                    if dep_mtime.is_none() {
+                        let output = match key.clone() {
+                            Key::Single(_) => String::from_utf8(key.as_bytes().to_vec())?,
+                            Key::Multi(keys) => String::from_utf8(keys[0].as_bytes().to_vec())?,
+                        };
+                        return Err(RebuilderError::MissingInput {
+                            input: String::from_utf8(dep_bytes.clone().to_vec())?,
+                            output,
+                        });
+                    }
+                    Ok(dep_mtime
                         .and_then(|dep_mtime| mtime.map(|m| dep_mtime > m))
                         .or_else(|| Some(false))
-                        .unwrap_or(true)
+                        .unwrap_or(true))
                 }
                 Key::Multi(_) => {
                     assert!(task.is_retrieve());
                     assert_eq!(dependencies.len(), 1);
                     // Never actually need to do a retrieval action.
-                    false
+                    Ok(false)
                 }
             })
             .collect();
+        let bools = bools?;
 
         let dirty = mtime.is_none() || {
             if bools.is_empty() {
@@ -134,16 +154,17 @@ where
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Box::new(CommandTask::new(task.command().unwrap().clone()))
+            Ok(Box::new(CommandTask::new(task.command().unwrap().clone())))
         } else {
             // TODO: current value?
-            Box::new(NoopTask {})
+            Ok(Box::new(NoopTask {}))
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use insta::assert_display_snapshot;
     use std::{
         collections::HashMap,
         io::{Error, ErrorKind, Result},
@@ -180,18 +201,98 @@ mod test {
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         eprintln!("Task is command {}", task.is_command());
-        let task = rebuilder.build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task);
+        let task = rebuilder
+            .build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task)
+            .expect("valid task");
         assert!(task.is_command());
     }
 
-    /// A phony rule where the input does not exist should fail.
+    /// A rule where the input does not exist should fail.
     #[test]
-    fn test_phony_compatibility1() {
-        // let task = Task {
-        //     dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
-        //     variant: TaskVariant::Retrieve,
-        // };
-        // let task = rebuilder.build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task);
-        // assert!(task.is_command());
+    fn test_input_does_not_exist() {
+        struct MockDiskInterface {}
+
+        impl DiskInterface for MockDiskInterface {
+            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+                Err(Error::new(ErrorKind::NotFound, "mock not found"))
+            }
+        }
+
+        let mock_disk = MockDiskInterface {};
+        let state = MTimeState::new(mock_disk);
+        let rebuilder = MTimeRebuilder::new(state);
+        // What we really want in this test is that if the input is not itself an output of
+        // something else, then we want to error if it does not exist.
+        // What we know: inputs MUST exist by the time a task is executed, because the scheduler
+        // guarantees it.
+        // that satisfies erroring out when inputs do not exist.
+        // It probably won't satisfy "oh if this is wrapped in a phony". Actually it can, by
+        // marking the mtimestate with some marker when the output did not exist. essentially a
+        // "dirtiness" state instead of a mtimestate.
+        let task = rebuilder.build(
+            Key::Single(b"phony_user".to_vec()),
+            TaskResult {},
+            &Task {
+                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                variant: TaskVariant::Retrieve,
+            },
+        );
+        assert!(task.is_err());
+        match task {
+            Err(e) => {
+                assert_display_snapshot!(e);
+            }
+            _ => assert!(false, "Expected error"),
+        }
+
+        let task = rebuilder.build(
+            Key::Single(b"phony_user".to_vec()),
+            TaskResult {},
+            &Task {
+                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                variant: TaskVariant::Command("whatever".to_string()),
+            },
+        );
+        assert!(task.is_err());
+        match task {
+            Err(e) => {
+                assert_display_snapshot!(e);
+            }
+            _ => assert!(false, "Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_input_does_not_exist_multiple_out_error_message() {
+        struct MockDiskInterface {}
+
+        impl DiskInterface for MockDiskInterface {
+            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+                Err(Error::new(ErrorKind::NotFound, "mock not found"))
+            }
+        }
+
+        let mock_disk = MockDiskInterface {};
+        let state = MTimeState::new(mock_disk);
+        let rebuilder = MTimeRebuilder::new(state);
+        let task = Task {
+            dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+            variant: TaskVariant::Retrieve,
+        };
+        let task = rebuilder.build(
+            Key::Multi(vec![
+                Key::Single(b"phony_user".to_vec()),
+                Key::Single(b"phony_user2".to_vec()),
+            ]),
+            TaskResult {},
+            &task,
+        );
+        assert!(task.is_err());
+        match task {
+            Err(e) => {
+                assert_display_snapshot!(e);
+            }
+            _ => assert!(false, "Expected error"),
+        }
     }
 }

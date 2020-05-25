@@ -10,6 +10,10 @@ ninja-desc = { path = "../desc" }
 ninja-tasks = { path = "../tasks" }
 petgraph = "^0.5"
 crossbeam = "^0.7.3"
+thiserror = "^1.0"
+
+[dev-dependencies]
+insta = "^0.16.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
