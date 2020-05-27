@@ -295,4 +295,41 @@ mod test {
             _ => assert!(false, "Expected error"),
         }
     }
+
+    #[test]
+    fn test_phony_input() {
+        struct MockDiskInterface {}
+
+        impl DiskInterface for MockDiskInterface {
+            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+                // This test should not hit disk.
+                Err(Error::new(ErrorKind::NotFound, "mock not found"))
+            }
+        }
+
+        let mock_disk = MockDiskInterface {};
+        let state = MTimeState::new(mock_disk);
+        let rebuilder = MTimeRebuilder::new(state);
+        let task = rebuilder.build(
+            Key::Single(b"phony_target_that_does_not_exist".to_vec()),
+            TaskResult {},
+            &Task {
+                dependencies: vec![],
+                variant: TaskVariant::Retrieve,
+            },
+        );
+        assert!(task.is_ok());
+
+        // Since the above marked the output as phony/dirty, this one should not fail because the
+        // cache should treat it as dirty.
+        let task = rebuilder.build(
+            Key::Single(b"phony_user".to_vec()),
+            TaskResult {},
+            &Task {
+                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                variant: TaskVariant::Retrieve,
+            },
+        );
+        assert!(task.is_ok());
+    }
 }
