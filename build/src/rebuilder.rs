@@ -147,7 +147,6 @@ pub enum RebuilderError {
     Utf8Error(#[from] FromUtf8Error),
     #[error("'{input}', needed by '{output}', missing and no known rule to make it")]
     MissingInput { output: String, input: String },
-    // TODO: Add file name and ninja-compatible error.
     #[error("error looking up mtime")]
     IOError(#[from] std::io::Error),
 }
@@ -270,7 +269,7 @@ where
             self.mtime_state.mark_dirty(key.clone());
         }
 
-        eprintln!("dirty? {}", dirty);
+        eprintln!("{} dirty? {}", &key, dirty);
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
             // dependency is not available.

@@ -5,6 +5,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::atomic::Ordering,
 };
+use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
@@ -38,6 +39,12 @@ pub struct ParallelTopoScheduler<State> {
 enum QueueTask<State> {
     Stop,
     Task((NodeIndex, CompatibleBuildTask<State>)),
+}
+
+#[derive(Error, Debug)]
+pub enum BuildError {
+    #[error("{0}")]
+    RebuilderError(#[from] RebuilderError),
 }
 
 impl<State> ParallelTopoScheduler<State>
@@ -83,7 +90,7 @@ where
         state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
-    ) {
+    ) -> Result<(), BuildError> {
         assert!(start.is_none(), "not implemented non-externals yet");
         // TODO: Ok we can finally build a graph here.
         let graph = Self::build_graph(&tasks);
@@ -175,9 +182,15 @@ where
                         let key = graph[node];
                         if let Some(task) = tasks.task(key) {
                             // TODO: handle error
-                            let build_task = rebuilder
-                                .build(key.clone(), TaskResult {}, task)
-                                .expect("valid task");
+                            let rebuilder_result =
+                                rebuilder.build(key.clone(), TaskResult {}, task);
+                            if let Err(e) = rebuilder_result {
+                                for _ in 0..CAP {
+                                    job_deque.push(QueueTask::Stop);
+                                }
+                                return Err(From::from(e));
+                            }
+                            let build_task = rebuilder_result.unwrap();
                             job_deque.push(QueueTask::Task((node, build_task)));
                         } else {
                             finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
@@ -197,12 +210,14 @@ where
             for _ in 0..CAP {
                 job_deque.push(QueueTask::Stop);
             }
+            Ok(())
         })
-        .unwrap();
+        .expect("no crossbeam errors")
     }
 }
 
-impl<State> Scheduler<Key, TaskResult, State, RebuilderError> for ParallelTopoScheduler<State>
+impl<State> Scheduler<Key, TaskResult, State, BuildError, RebuilderError>
+    for ParallelTopoScheduler<State>
 where
     State: Sync,
 {
@@ -212,7 +227,7 @@ where
         _state: State,
         _tasks: &Tasks,
         _start: Vec<Key>,
-    ) {
+    ) -> Result<(), BuildError> {
         todo!("Not implemented");
     }
 
@@ -221,20 +236,21 @@ where
         rebuilder: CompatibleRebuilder<State>,
         state: State,
         tasks: &Tasks,
-    ) {
-        self.schedule_internal(rebuilder, state, tasks, None);
+    ) -> Result<(), BuildError> {
+        self.schedule_internal(rebuilder, state, tasks, None)
     }
 }
 
 pub fn build_externals<K, V, State>(
-    scheduler: impl Scheduler<K, V, State, RebuilderError>,
+    scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
     rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
     tasks: &Tasks,
     state: State,
-) where
+) -> Result<(), BuildError>
+where
     State: Sync,
 {
-    &scheduler.schedule_externals(&rebuilder, state, tasks);
+    Ok(scheduler.schedule_externals(&rebuilder, state, tasks)?)
 }
 
 pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {

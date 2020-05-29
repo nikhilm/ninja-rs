@@ -9,6 +9,7 @@ ninja-parse = { path = "../parse" }
 ninja-build = { path = "../build" }
 ninja-desc = { path = "../desc" }
 ninja-tasks = { path = "../tasks" }
+anyhow = "^1.0"
 
 # Temporary for the model.
 petgraph = "^0.5"

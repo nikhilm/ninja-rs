@@ -1,6 +1,4 @@
-extern crate ninja_parse;
-extern crate petgraph;
-
+use anyhow::Error;
 use ninja_build::{
     build_externals, default_mtimestate, MTimeRebuilder, MTimeState, ParallelTopoScheduler,
 };
@@ -58,6 +56,9 @@ fn main() {
     let scheduler = ParallelTopoScheduler::new();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
-    build_externals(scheduler, rebuilder, &tasks, ());
+    if let Err(e) = build_externals(scheduler, rebuilder, &tasks, ()) {
+        eprintln!("ninjars: {}", e);
+        std::process::exit(1);
+    }
     // build log loading later
 }
