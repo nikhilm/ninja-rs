@@ -1,6 +1,8 @@
 use super::TaskResult;
 use ninja_tasks::{Key, Task};
 use std::{
+    cell::RefCell,
+    collections::{hash_map::Entry, HashMap},
     ffi::OsStr,
     fs::metadata,
     path::Path,
@@ -17,11 +19,71 @@ use crate::{
     task::{CommandTask, NoopTask},
 };
 
-#[derive(Debug, Default)]
+/**
+ * Ninja's modification status is slightly more complex than simply comparing mtimes. This is even
+ * without bringing dynamic dependencies and the build log into the picture. It falls out of the
+ * behavior of the phony rule. Or any rule really, but phony is commonly used.
+ *
+ * Ninja will fail with this build edge, because file_does_not_exist is missing and is a source
+ * file.
+ * ```ninja
+ * build some_file: some_rule file_does_not_exist
+ * ```
+ *
+ * Adding a phony rule is enough to make this a valid build description:
+ * ```ninja
+ * build file_does_not_exist: phony
+ * build some_file: some_rule file_does_not_exist
+ * ```
+ *
+ * Even though the state of the file system has not changed, ninja sees the phony rule and declares
+ * the `file_does_not_exist` output as already dirty.
+ *
+ * In Ninja, this behavior falls out of Builder::AddTarget, DependencyScan::RecomputeDirty and
+ * Plan::AddSubTarget.
+ *
+ * In case 1, RecomputeDirty marks file_does_not_exist as dirty and some_file as dirty. Then,
+ * some_file is added to the plan, and all its inputs are also added. At this point we hit the
+ * "input does not have any incoming edge, but is dirty, which means a source file does not exist"
+ * and Ninja fails.
+ *
+ * In case 2, RecomputeDirty marks file_does_not_exist as dirty and some_file as dirty. As we
+ * proceed to add file_does_not_exist to the plan, it does have an incoming edge, so it does not
+ * fail.
+ *
+ * Basically, if a file is an output, then it can _not exist_ and other edges are allowed to depend
+ * on it without any kind of existence check. It is always just considered dirty.
+ *
+ * Now, in the a la carte model, the rebuilder cannot really look at transitive dependencies for a
+ * task. That is, we have no notion of AddSubTarget. We do know that the scheduler is expected to
+ * preserve a topological order. So the invariant that the rebuilder will see all dependencies before
+ * the dependent is still preserved. So to implement similar behavior, we need to mark "oh this was
+ * an output for a build edge". If a file is known to be an output of another edge, it is allowed
+ * to be missing for state, and we will consider the dependent as also dirty.
+ *
+ * It is unclear how to model this in terms of the information MTimeState should preserve. It can
+ * either maintain a mtime cache + a dirty cache, or a mtime cache + seen outputs cache. It would
+ * be nice to represent them nicely so that we don't end up in invalid states when going through a
+ * fairly complex build function.
+ *
+ */
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Dirtiness {
+    Dirty,
+    // This means we already looked and the file does not exist, unlike Option<Dirtiness> which
+    // means we haven't looked yet.
+    DoesNotExist,
+    Modified(SystemTime),
+}
+
+#[derive(Debug)]
 pub struct MTimeState<Disk>
 where
     Disk: DiskInterface,
 {
+    // This Key abstraction is unnatural because most places don't care about multi-keys.
+    dirty: RefCell<HashMap<Key, Dirtiness>>,
     disk: Disk,
 }
 
@@ -30,21 +92,35 @@ where
     Disk: DiskInterface,
 {
     pub fn new(disk: Disk) -> Self {
-        MTimeState { disk }
+        MTimeState {
+            disk,
+            dirty: Default::default(),
+        }
     }
 
-    pub fn modified(&self, key: Key) -> std::io::Result<Option<SystemTime>> {
-        // TODO: Cache
-        self.disk
-            .modified(OsStr::from_bytes(key.as_bytes()))
-            .map(|x| Some(x))
-            .or_else(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            })
+    pub fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
+        match self.dirty.borrow_mut().entry(key.clone()) {
+            Entry::Occupied(e) => Ok(*e.get()),
+            Entry::Vacant(_) => {
+                // Multi keys can only have modified called on them if a previous run marked them
+                // as dirty.
+                assert!(key.is_single());
+                self.disk
+                    .modified(OsStr::from_bytes(key.as_bytes()))
+                    .map(Dirtiness::Modified)
+                    .or_else(|e| {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            Ok(Dirtiness::DoesNotExist)
+                        } else {
+                            Err(e)
+                        }
+                    })
+            }
+        }
+    }
+
+    pub fn mark_dirty(&self, key: Key) {
+        self.dirty.borrow_mut().insert(key, Dirtiness::Dirty);
     }
 }
 
@@ -71,6 +147,9 @@ pub enum RebuilderError {
     Utf8Error(#[from] FromUtf8Error),
     #[error("'{input}', needed by '{output}', missing and no known rule to make it")]
     MissingInput { output: String, input: String },
+    // TODO: Add file name and ninja-compatible error.
+    #[error("error looking up mtime")]
+    IOError(#[from] std::io::Error),
 }
 
 impl<Disk> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<Disk>
@@ -85,68 +164,112 @@ where
     ) -> Result<Box<dyn BuildTask<(), TaskResult> + Send>, RebuilderError> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
-        let mtime: Option<SystemTime> = match key.clone() {
-            key @ Key::Single(_) => self.mtime_state.modified(key).expect("TODO"),
+
+        let outputs_dirty: Dirtiness = match key.clone() {
+            Key::Single(_) => self.mtime_state.modified(key.clone())?,
             Key::Multi(keys) => {
-                // If the oldest output is older than any input, rebuild.
-                let times: Vec<std::time::SystemTime> = keys
-                    .iter()
-                    .filter_map(|key| self.mtime_state.modified(key.clone()).expect("TODO"))
-                    .collect();
-                if times.len() < keys.len() {
-                    // At least one output did not exist, so always build.
-                    // But... if we return None here, we will run the script w/o verifying that all
-                    // inputs actually exist before running the command. So use this instead.
-                    None
-                } else {
-                    Some(times.into_iter().min().expect("at least one"))
-                }
+                assert!(keys.len() > 1);
+                // Non-empty multi-keys really should be asserted elsewhere.
+                // We actually want something like sorbet's "values have assertable conditions in
+                // debug mode".
+                keys.iter()
+                    .try_fold(
+                        None,
+                        |so_far, current_key| -> Result<Option<Dirtiness>, RebuilderError> {
+                            let dirty = self.mtime_state.modified(current_key.clone())?;
+                            if so_far.is_none() {
+                                Ok(Some(dirty))
+                            } else {
+                                let so_far = so_far.unwrap();
+                                Ok(Some(match (so_far, dirty) {
+                                    // If we get 2 mtimes, we compare them and return the smaller one.
+                                    // Everything else means at least one output is missing or dirty, which
+                                    // translates to everything being dirty.
+                                    (
+                                        Dirtiness::Modified(so_far),
+                                        Dirtiness::Modified(this_one),
+                                    ) => Dirtiness::Modified(std::cmp::min(so_far, this_one)),
+                                    // Dirty wins over everything else.
+                                    _ => Dirtiness::Dirty,
+                                }))
+                            }
+                        },
+                    )?
+                    .expect("non-None because multi-key has at least two elements")
             }
         };
 
         // Iterate inputs to make sure they exist, regardless of what outputs were determined.
         let dependencies = task.dependencies();
-        // We could use iter.any, but that will short circuit and not check every file for
-        // existence. not sure what we want here.
-        let bools: std::result::Result<Vec<bool>, RebuilderError> = dependencies
-            .iter()
-            .map(|dep| match dep {
-                Key::Single(ref dep_bytes) => {
-                    let dep_mtime = self.mtime_state.modified(dep.clone()).expect("TODO");
-                    if dep_mtime.is_none() {
-                        let output = match key.clone() {
-                            Key::Single(_) => String::from_utf8(key.as_bytes().to_vec())?,
-                            Key::Multi(keys) => String::from_utf8(keys[0].as_bytes().to_vec())?,
-                        };
-                        return Err(RebuilderError::MissingInput {
-                            input: String::from_utf8(dep_bytes.clone().to_vec())?,
-                            output,
-                        });
-                    }
-                    Ok(dep_mtime
-                        .and_then(|dep_mtime| mtime.map(|m| dep_mtime > m))
-                        .or_else(|| Some(false))
-                        .unwrap_or(true))
-                }
-                Key::Multi(_) => {
-                    assert!(task.is_retrieve());
-                    assert_eq!(dependencies.len(), 1);
-                    // Never actually need to do a retrieval action.
-                    Ok(false)
-                }
-            })
-            .collect();
-        let bools = bools?;
-
-        let dirty = mtime.is_none() || {
-            if bools.is_empty() {
-                // If there were no inputs, consider dirty if outputs were missing.
-                mtime.is_none()
-            } else {
-                let x = bools.iter().any(|b| *b);
-                x
+        // Dependencies can either be a single Multi key or a list of Singles.
+        let inputs_dirty = if dependencies.len() == 1 && matches!(dependencies[0], Key::Multi(_)) {
+            Some(self.mtime_state.modified(dependencies[0].clone())?)
+        } else {
+            // TODO if debug.
+            for dep in dependencies {
+                assert!(dep.is_single());
             }
+            // We could use iter.any, but that will short circuit and not check every file for
+            // existence.
+            dependencies.iter().try_fold(
+                None,
+                |so_far, current_dep| -> Result<Option<Dirtiness>, RebuilderError> {
+                    match current_dep {
+                        Key::Single(ref dep_bytes) => {
+                            let dep_mtime = self.mtime_state.modified(current_dep.clone())?;
+                            if dep_mtime == Dirtiness::DoesNotExist {
+                                let output = match key.clone() {
+                                    Key::Single(_) => String::from_utf8(key.as_bytes().to_vec())?,
+                                    Key::Multi(keys) => {
+                                        String::from_utf8(keys[0].as_bytes().to_vec())?
+                                    }
+                                };
+                                Err(RebuilderError::MissingInput {
+                                    input: String::from_utf8(dep_bytes.clone().to_vec())?,
+                                    output,
+                                })
+                            } else {
+                                Ok(if so_far.is_none() {
+                                    Some(dep_mtime)
+                                } else {
+                                    let so_far = so_far.unwrap();
+                                    assert_ne!(so_far, Dirtiness::DoesNotExist);
+                                    assert_ne!(dep_mtime, Dirtiness::DoesNotExist);
+                                    Some(match (so_far, dep_mtime) {
+                                        // max of inputs, so we can check if newest input is older than
+                                        // oldest output.
+                                        (
+                                            Dirtiness::Modified(so_far),
+                                            Dirtiness::Modified(dep_mtime),
+                                        ) => Dirtiness::Modified(std::cmp::max(so_far, dep_mtime)),
+                                        _ => Dirtiness::Dirty,
+                                    })
+                                })
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                },
+            )?
         };
+        let dirty = if let Dirtiness::Modified(output_mtime) = outputs_dirty {
+            if let Some(inputs_dirty) = inputs_dirty {
+                match inputs_dirty {
+                    Dirtiness::Dirty => true,
+                    Dirtiness::DoesNotExist => unreachable!(),
+                    Dirtiness::Modified(input_mtime) => input_mtime > output_mtime,
+                }
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+
+        if dirty {
+            self.mtime_state.mark_dirty(key.clone());
+        }
+
         eprintln!("dirty? {}", dirty);
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
@@ -166,9 +289,7 @@ where
 mod test {
     use insta::assert_display_snapshot;
     use std::{
-        collections::HashMap,
         io::{Error, ErrorKind, Result},
-        path::PathBuf,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
@@ -213,7 +334,7 @@ mod test {
         struct MockDiskInterface {}
 
         impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
             }
         }
@@ -267,7 +388,7 @@ mod test {
         struct MockDiskInterface {}
 
         impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
             }
         }
@@ -301,7 +422,7 @@ mod test {
         struct MockDiskInterface {}
 
         impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
                 // This test should not hit disk.
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
             }

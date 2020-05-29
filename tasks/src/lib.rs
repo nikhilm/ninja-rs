@@ -8,6 +8,14 @@ pub enum Key {
 }
 
 impl Key {
+    pub fn is_single(&self) -> bool {
+        matches!(self, Key::Single(_))
+    }
+
+    pub fn is_multi(&self) -> bool {
+        matches!(self, Key::Multi(_))
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         match *self {
             Key::Single(ref bytes) => bytes,
@@ -134,6 +142,7 @@ fn sym_to_key(output: Vec<u8>) -> Key {
 }
 
 fn syms_to_key(mut outputs: Vec<Vec<u8>>) -> Key {
+    assert!(outputs.len() > 1);
     outputs.sort();
     Key::Multi(outputs.iter().map(|o| sym_to_key(o.clone())).collect())
 }

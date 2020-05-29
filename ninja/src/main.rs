@@ -42,6 +42,10 @@ fn main() {
     // don't spit out executable tasks, instead just having an enum.
     let tasks = description_to_tasks(ast);
 
+    // BTW, one way to model cheap string/byte references by index without having to pass lifetimes
+    // and refs everywhere is to have things that need to go back tothe string/byte sequence
+    // explicitly require the intern lookup object to be passed in.
+
     // Ready to build.
     // let _state = BuildLog::read();
     //let mut store = DiskStore::new();
