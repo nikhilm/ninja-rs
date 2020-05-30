@@ -155,6 +155,7 @@ where
             crossbeam::deque::Injector::new();
         let running_jobs = std::sync::atomic::AtomicUsize::new(0);
 
+        // TODO: Any thread panics should also shut down all threads.
         scope(|s| {
             for _ in 0..CAP {
                 // handles will be collected by the scope.

@@ -70,6 +70,14 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Dirtiness {
+    // We need clean to handle a very specific case, different from non-existence in the cache.
+    // Invariant: It does not make any sense to request stat() on a Key::Multi, which means the
+    // cache should always have an entry for a Key::Multi by the time it is encountered.
+    // This requires us to mark the Key::Multi when it is the output instead of an input.
+    // If we only have Dirty, we can't mark the cache when the key is actually not dirty because
+    // the dirtiness conditions for the edge producing the Multi were not satisfied. In that case
+    // we mark it as clean.
+    Clean,
     Dirty,
     // This means we already looked and the file does not exist, unlike Option<Dirtiness> which
     // means we haven't looked yet.
@@ -101,26 +109,34 @@ where
     pub fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
         match self.dirty.borrow_mut().entry(key.clone()) {
             Entry::Occupied(e) => Ok(*e.get()),
-            Entry::Vacant(_) => {
-                // Multi keys can only have modified called on them if a previous run marked them
-                // as dirty.
+            Entry::Vacant(entry) => {
                 assert!(key.is_single());
-                self.disk
-                    .modified(OsStr::from_bytes(key.as_bytes()))
-                    .map(Dirtiness::Modified)
-                    .or_else(|e| {
-                        if e.kind() == std::io::ErrorKind::NotFound {
-                            Ok(Dirtiness::DoesNotExist)
-                        } else {
-                            Err(e)
-                        }
-                    })
+                let inserted = entry.insert(
+                    self.disk
+                        .modified(OsStr::from_bytes(key.as_bytes()))
+                        .map(Dirtiness::Modified)
+                        .or_else(|e| {
+                            if e.kind() == std::io::ErrorKind::NotFound {
+                                Ok(Dirtiness::DoesNotExist)
+                            } else {
+                                Err(e)
+                            }
+                        })?,
+                );
+                Ok(*inserted)
             }
         }
     }
 
-    pub fn mark_dirty(&self, key: Key) {
-        self.dirty.borrow_mut().insert(key, Dirtiness::Dirty);
+    pub fn mark_dirty(&self, key: Key, is_dirty: bool) {
+        self.dirty.borrow_mut().insert(
+            key,
+            if is_dirty {
+                Dirtiness::Dirty
+            } else {
+                Dirtiness::Clean
+            },
+        );
     }
 }
 
@@ -202,6 +218,7 @@ where
         let dependencies = task.dependencies();
         // Dependencies can either be a single Multi key or a list of Singles.
         let inputs_dirty = if dependencies.len() == 1 && matches!(dependencies[0], Key::Multi(_)) {
+            assert!(task.is_retrieve());
             Some(self.mtime_state.modified(dependencies[0].clone())?)
         } else {
             // TODO if debug.
@@ -254,6 +271,7 @@ where
         let dirty = if let Dirtiness::Modified(output_mtime) = outputs_dirty {
             if let Some(inputs_dirty) = inputs_dirty {
                 match inputs_dirty {
+                    Dirtiness::Clean => false,
                     Dirtiness::Dirty => true,
                     Dirtiness::DoesNotExist => unreachable!(),
                     Dirtiness::Modified(input_mtime) => input_mtime > output_mtime,
@@ -265,9 +283,7 @@ where
             true
         };
 
-        if dirty {
-            self.mtime_state.mark_dirty(key.clone());
-        }
+        self.mtime_state.mark_dirty(key.clone(), dirty);
 
         eprintln!("{} dirty? {}", &key, dirty);
         if dirty && task.is_command() {
