@@ -188,3 +188,88 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
 
     Tasks { map }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_fail_as_bytes_on_multi() {
+        Key::Multi(vec![]).as_bytes();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_syms_to_key_1() {
+        syms_to_key(vec![b"a".to_vec()]);
+    }
+
+    #[test]
+    fn test_syms_to_key_at_least_2() {
+        syms_to_key(vec![b"a".to_vec(), b"b".to_vec()]);
+    }
+
+    #[test]
+    fn test_sort() {
+        let key = syms_to_key(vec![
+            b"hello".to_vec(),
+            b"grungy".to_vec(),
+            b"aaaaaaaaaaaaaaaa.txt".to_vec(),
+        ]);
+        if let Key::Multi(keys) = key {
+            let mut iter = keys.iter().peekable();
+            while let Some(elem) = iter.next() {
+                if let Some(next) = iter.peek() {
+                    assert!(elem <= next);
+                }
+            }
+        } else {
+            panic!("Expected multi");
+        }
+    }
+
+    #[test]
+    fn test_outputs_processing() {
+        let desc = Description {
+            builds: vec![Build {
+                action: Action::Command("compiler".to_owned()),
+                inputs: vec![],
+                outputs: vec![b"output9.txt".to_vec(), b"output2.txt".to_vec()],
+            }],
+        };
+
+        let tasks = description_to_tasks(desc);
+        assert_eq!(tasks.all_tasks().len(), 3);
+
+        // find the multi.
+        let mut found_multi = false;
+        let mut single_count = 0;
+        for key in tasks.all_tasks().keys() {
+            if let Key::Multi(keys) = key {
+                found_multi = true;
+                assert_eq!(
+                    keys,
+                    &vec![
+                        Key::Single(b"output2.txt".to_vec()),
+                        Key::Single(b"output9.txt".to_vec())
+                    ]
+                );
+                let task = tasks.task(key).expect("valid task");
+                assert!(task.is_command());
+                assert!(task.dependencies().is_empty());
+            } else if let Key::Single(path) = key {
+                single_count += 1;
+                assert!((path == &b"output2.txt".to_vec() || path == &b"output9.txt".to_vec()));
+
+                let task = tasks.task(key).expect("valid task");
+                assert!(task.is_retrieve());
+                assert_eq!(task.dependencies().len(), 1);
+                let dep = task.dependencies()[0].clone();
+                assert!(matches!(dep, Key::Multi(_)));
+            }
+        }
+        assert!(found_multi);
+        assert_eq!(single_count, 2);
+    }
+}
