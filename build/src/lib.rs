@@ -1,9 +1,6 @@
 extern crate petgraph;
 
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    sync::atomic::Ordering,
-};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
@@ -41,6 +38,8 @@ pub struct ParallelTopoScheduler<State> {
 pub enum BuildError {
     #[error("{0}")]
     RebuilderError(#[from] RebuilderError),
+    #[error("command pool panic")]
+    CommandPoolPanic,
 }
 
 struct CommandPoolWrapperTask<'a, State>
@@ -177,39 +176,43 @@ where
         };
 
         let command_pool = CommandPool::new();
-        command_pool.run(|rx| {
-            while finished.len() < wanted {
-                // Inherently racy.
-                if command_pool.has_capacity() {
-                    // we have capacity.
-                    if let Some(node) = ready.pop_front() {
-                        let key = graph[node];
-                        if let Some(task) = tasks.task(key) {
-                            // TODO: handle error
-                            let rebuilder_result =
-                                rebuilder.build(key.clone(), TaskResult {}, task);
-                            if let Err(e) = rebuilder_result {
-                                return Err(From::from(e));
+        command_pool
+            .run(|scope| -> Result<(), BuildError> {
+                while finished.len() < wanted {
+                    // Inherently racy.
+                    if scope.has_capacity() {
+                        // we have capacity.
+                        if let Some(node) = ready.pop_front() {
+                            let key = graph[node];
+                            if let Some(task) = tasks.task(key) {
+                                // TODO: handle error
+                                let rebuilder_result =
+                                    rebuilder.build(key.clone(), TaskResult {}, task);
+                                if let Err(e) = rebuilder_result {
+                                    return Err(From::from(e));
+                                }
+                                let build_task = rebuilder_result.unwrap();
+                                scope.enqueue(CommandPoolWrapperTask::new(
+                                    node, build_task, state_ref,
+                                ));
+                            } else {
+                                finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                             }
-                            let build_task = rebuilder_result.unwrap();
-                            command_pool
-                                .enqueue(CommandPoolWrapperTask::new(node, build_task, state_ref));
-                        } else {
-                            finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+                            // we were able to queue a task, so go back to the start of the loop.
+                            continue;
                         }
-                        // we were able to queue a task, so go back to the start of the loop.
-                        continue;
                     }
-                }
 
-                // we are either at full capacity, or can't make any progress on ready tasks, so
-                // wait for something to be done.
-                let (node, _result) = rx.recv().unwrap();
-                // This will update ready and finished, so we will have made progress.
-                finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
-            }
-            Ok(())
-        })
+                    // we are either at full capacity, or can't make any progress on ready tasks, so
+                    // wait for something to be done.
+                    let (node, _result) = scope.rx.recv().unwrap();
+                    // This will update ready and finished, so we will have made progress.
+                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+                }
+                Ok(())
+            })
+            .map_err(|_| BuildError::CommandPoolPanic)
+            .and_then(|r| r)
     }
 }
 
