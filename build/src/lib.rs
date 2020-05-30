@@ -1,6 +1,5 @@
 extern crate petgraph;
 
-use crossbeam::{deque::Steal, scope};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     sync::atomic::Ordering,
@@ -12,11 +11,13 @@ use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 // use ninja_desc::{BuildGraph, TaskResult, TasksMap};
 use ninja_tasks::{Key, Tasks};
 
+mod command_pool;
 pub mod disk_interface;
 mod interface;
 mod rebuilder;
 mod task;
 
+use command_pool::{CommandPool, CommandPoolTask};
 use disk_interface::SystemDiskInterface;
 use interface::*;
 pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
@@ -36,15 +37,42 @@ pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
 }
 
-enum QueueTask<State> {
-    Stop,
-    Task((NodeIndex, CompatibleBuildTask<State>)),
-}
-
 #[derive(Error, Debug)]
 pub enum BuildError {
     #[error("{0}")]
     RebuilderError(#[from] RebuilderError),
+}
+
+struct CommandPoolWrapperTask<'a, State>
+where
+    State: Sync,
+{
+    node: NodeIndex,
+    task: CompatibleBuildTask<State>,
+    state_ref: &'a State,
+}
+
+impl<'a, State> CommandPoolWrapperTask<'a, State>
+where
+    State: Sync,
+{
+    pub fn new(node: NodeIndex, task: CompatibleBuildTask<State>, state_ref: &'a State) -> Self {
+        CommandPoolWrapperTask {
+            node,
+            task,
+            state_ref,
+        }
+    }
+}
+impl<'a, State> CommandPoolTask for CommandPoolWrapperTask<'a, State>
+where
+    State: Sync,
+{
+    type Result = (NodeIndex, TaskResult);
+
+    fn run(&self) -> Self::Result {
+        (self.node, self.task.run(self.state_ref))
+    }
 }
 
 impl<State> ParallelTopoScheduler<State>
@@ -148,36 +176,11 @@ where
             }
         };
 
-        const CAP: usize = 8;
-        let (tx, rx) = std::sync::mpsc::sync_channel(CAP);
-        // Non-stealing queue.
-        let job_deque: crossbeam::deque::Injector<QueueTask<State>> =
-            crossbeam::deque::Injector::new();
-        let running_jobs = std::sync::atomic::AtomicUsize::new(0);
-
-        // TODO: Any thread panics should also shut down all threads.
-        scope(|s| {
-            for _ in 0..CAP {
-                // handles will be collected by the scope.
-                s.spawn(|_| loop {
-                    if let Steal::Success(task) = job_deque.steal() {
-                        match task {
-                            QueueTask::Stop => break,
-                            QueueTask::Task((node, task)) => {
-                                running_jobs.fetch_add(1, Ordering::SeqCst);
-                                let result = task.run(state_ref);
-                                // TODO: This unwrap can make the job count end up wrong.
-                                tx.send((node, result)).unwrap();
-                                running_jobs.fetch_sub(1, Ordering::SeqCst);
-                            }
-                        }
-                    }
-                });
-            }
-
+        let command_pool = CommandPool::new();
+        command_pool.run(|rx| {
             while finished.len() < wanted {
                 // Inherently racy.
-                if running_jobs.load(Ordering::Relaxed) < CAP {
+                if command_pool.has_capacity() {
                     // we have capacity.
                     if let Some(node) = ready.pop_front() {
                         let key = graph[node];
@@ -186,13 +189,11 @@ where
                             let rebuilder_result =
                                 rebuilder.build(key.clone(), TaskResult {}, task);
                             if let Err(e) = rebuilder_result {
-                                for _ in 0..CAP {
-                                    job_deque.push(QueueTask::Stop);
-                                }
                                 return Err(From::from(e));
                             }
                             let build_task = rebuilder_result.unwrap();
-                            job_deque.push(QueueTask::Task((node, build_task)));
+                            command_pool
+                                .enqueue(CommandPoolWrapperTask::new(node, build_task, state_ref));
                         } else {
                             finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
                         }
@@ -207,13 +208,8 @@ where
                 // This will update ready and finished, so we will have made progress.
                 finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
             }
-
-            for _ in 0..CAP {
-                job_deque.push(QueueTask::Stop);
-            }
             Ok(())
         })
-        .expect("no crossbeam errors")
     }
 }
 
