@@ -8,10 +8,6 @@ use ninja_parse::Parser;
 use ninja_tasks::description_to_tasks;
 use std::time::{Duration, Instant};
 
-fn spin() {
-    scoped_metric!("spin");
-}
-
 fn main() {
     ninja_metrics::enable();
     let start = "build.ninja";
@@ -68,7 +64,6 @@ fn main() {
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
     {
-        scoped_metric!("build2");
         scoped_metric!("build");
         if let Err(e) = build_externals(scheduler, rebuilder, &tasks, ()) {
             eprintln!("ninjars: {}", e);

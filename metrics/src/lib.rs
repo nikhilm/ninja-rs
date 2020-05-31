@@ -56,22 +56,22 @@ impl Metrics {
 
 impl fmt::Display for Metrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut name_width = 5; // To fit "Stat ".
+        let mut name_width = 7; // To fit "metric ".
         for metric in &self.metrics {
             name_width = std::cmp::max(name_width, metric.name.len());
         }
         write!(
             f,
-            "{:name_width$} {:>11} {:>6} {:>9}\n",
-            "Stat",
-            "Total (us)",
-            "Count",
-            "Avg (us)",
+            "{:name_width$} {:>6} {:>9} {:>11}\n",
+            "metric ",
+            "count",
+            "avg (us)",
+            "total (us)",
             name_width = name_width
         )?;
         write!(
             f,
-            "{:-<name_width$} {:-^11} {:-^6} {:-^9}\n",
+            "{:-<name_width$} {:-^6} {:-^9} {:-^11}\n",
             "",
             "",
             "",
@@ -81,7 +81,7 @@ impl fmt::Display for Metrics {
         for metric in &self.metrics {
             write!(
                 f,
-                "{:name_width$} {: >11} {:>6} {:>9}\n",
+                "{:name_width$} {: >6} {:>9} {:>11.3}\n",
                 metric.name,
                 metric.sum,
                 metric.count,
