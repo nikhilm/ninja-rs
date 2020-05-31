@@ -92,7 +92,7 @@ impl fmt::Display for Metrics {
         for metric in metrics {
             write!(
                 f,
-                "{:name_width$} {: >6} {:>9} {:>11.3}\n",
+                "{:name_width$} {: >6} {:>9.3} {:>11}\n",
                 metric.name,
                 metric.count,
                 metric.sum as f64 / metric.count as f64,
