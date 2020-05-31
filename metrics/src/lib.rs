@@ -40,16 +40,16 @@ impl Drop for ScopedMetric {
 
 #[derive(Debug)]
 pub struct Metrics {
-    metrics: Vec<Metric>,
+    metrics: Vec<Box<Metric>>,
 }
 
 impl Metrics {
     pub fn new_metric(&mut self, name: &'static str) -> &mut Metric {
         let len = self.metrics.len();
-        self.metrics.push(Metric {
+        self.metrics.push(Box::new(Metric {
             name,
             ..Default::default()
-        });
+        }));
         &mut self.metrics[len]
     }
 }
