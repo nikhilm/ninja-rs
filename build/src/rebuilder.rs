@@ -112,7 +112,7 @@ where
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(entry) => {
                 assert!(key.is_single());
-                scoped_metric!("stat");
+                scoped_metric!("mtime_state_insert");
                 let inserted = entry.insert(
                     self.disk
                         .modified(OsStr::from_bytes(key.as_bytes()))
