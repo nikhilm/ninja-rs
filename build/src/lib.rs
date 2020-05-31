@@ -29,11 +29,6 @@ type CompatibleBuildTask<State> = Box<dyn BuildTask<State, TaskResult> + Send>;
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
-#[derive(Debug)]
-pub struct ParallelTopoScheduler<State> {
-    _unused: std::marker::PhantomData<State>,
-}
-
 #[derive(Error, Debug)]
 pub enum BuildError {
     #[error("{0}")]
@@ -119,70 +114,30 @@ where
         start: Option<Vec<Key>>,
     ) -> Result<(), BuildError> {
         assert!(start.is_none(), "not implemented non-externals yet");
-        // TODO: Ok we can finally build a graph here.
         let graph = Self::build_graph(&tasks);
+        let mut build_state = BuildState::default();
 
         // Cannot use depth_first_search which doesn't say if it is postorder.
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
         // TODO: So we really need to enforce no cycles here.
         let mut visitor = DfsPostOrder::empty(&graph);
-        let mut ready = VecDeque::new();
-        let mut waiting_tasks = HashSet::new();
         let externals = graph.externals(Direction::Incoming);
-        let mut wanted = 0;
         for start in externals {
-            let key = graph[start];
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
-                wanted += 1;
-                // TODO: Do we really need this list?
-                // Seems like what we want is a PQ or something where things in earlier in the
-                // topo-sort show up first and then we peek and only pop if they are ready to be
-                // built or something.
-                // specifically, even though this DFS is useful to find the first few nodes
-                // to schedule, and calculates the topo-sort of the _reachable_ nodes, we can't
-                // actually act on that info beyond this point. Instead we need to just watch tasks
-                // finish, find their dependants and do a check for them.
-                if graph.edges_directed(node, Direction::Outgoing).count() == 0 {
-                    ready.push_back(node);
-                } else {
-                    waiting_tasks.insert(node);
-                }
+                build_state.add_node(&graph, node);
             }
         }
 
-        let mut finished = HashSet::new();
-
         let state_ref = &state;
-
-        let finish_node = |node,
-                           finished: &mut HashSet<NodeIndex>,
-                           ready: &mut VecDeque<NodeIndex>,
-                           waiting_tasks: &mut HashSet<NodeIndex>| {
-            finished.insert(node);
-            // See if this freed up any pending tasks to run.
-            for dependent in graph.neighbors_directed(node, Direction::Incoming) {
-                if !waiting_tasks.contains(&dependent) {
-                    continue;
-                }
-                if graph
-                    .neighbors_directed(dependent, Direction::Outgoing)
-                    .all(|dependency| finished.contains(&dependency))
-                {
-                    waiting_tasks.remove(&dependent);
-                    ready.push_back(dependent);
-                }
-            }
-        };
-
         let command_pool = CommandPool::new();
         command_pool
             .run(|scope| -> Result<(), BuildError> {
-                while finished.len() < wanted {
+                while !build_state.done() {
                     // Inherently racy.
                     if scope.has_capacity() {
                         // we have capacity.
-                        if let Some(node) = ready.pop_front() {
+                        if let Some(node) = build_state.next_ready() {
                             let key = graph[node];
                             if let Some(task) = tasks.task(key) {
                                 // TODO: handle error
@@ -196,7 +151,8 @@ where
                                     node, build_task, state_ref,
                                 ));
                             } else {
-                                finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+                                // No task, so this is a source and we are done.
+                                build_state.finish_node(&graph, node);
                             }
                             // we were able to queue a task, so go back to the start of the loop.
                             continue;
@@ -207,13 +163,66 @@ where
                     // wait for something to be done.
                     let (node, _result) = scope.rx.recv().unwrap();
                     // This will update ready and finished, so we will have made progress.
-                    finish_node(node, &mut finished, &mut ready, &mut waiting_tasks);
+                    build_state.finish_node(&graph, node);
                 }
                 Ok(())
             })
             .map_err(|_| BuildError::CommandPoolPanic)
             .and_then(|r| r)
     }
+}
+
+#[derive(Debug, Default)]
+struct BuildState {
+    wanted: usize,
+    finished: HashSet<NodeIndex>,
+    ready: VecDeque<NodeIndex>,
+    waiting_tasks: HashSet<NodeIndex>,
+}
+
+impl BuildState {
+    pub fn done(&self) -> bool {
+        assert!(self.finished.len() <= self.wanted);
+        self.finished.len() == self.wanted
+    }
+
+    pub fn next_ready(&mut self) -> Option<NodeIndex> {
+        assert!(!self.done());
+        self.ready.pop_front()
+    }
+
+    pub fn add_node(&mut self, graph: &SchedulerGraph, node: NodeIndex) {
+        self.wanted += 1;
+        if graph.edges_directed(node, Direction::Outgoing).count() == 0 {
+            // No dependencies, we can start this immediately.
+            self.ready.push_back(node);
+        } else {
+            // Has dependencies, wait until they are done.
+            self.waiting_tasks.insert(node);
+        }
+    }
+
+    pub fn finish_node(&mut self, graph: &SchedulerGraph, node: NodeIndex) {
+        self.finished.insert(node);
+        // See if this freed up any pending tasks to run.
+        for dependent in graph.neighbors_directed(node, Direction::Incoming) {
+            if !self.waiting_tasks.contains(&dependent) {
+                continue;
+            }
+            if graph
+                .neighbors_directed(dependent, Direction::Outgoing)
+                .all(|dependency| self.finished.contains(&dependency))
+            {
+                self.waiting_tasks.remove(&dependent);
+                self.ready.push_back(dependent);
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ParallelTopoScheduler<State> {
+    _unused: std::marker::PhantomData<State>,
 }
 
 impl<State> Scheduler<Key, TaskResult, State, BuildError, RebuilderError>

@@ -285,7 +285,7 @@ where
 
         self.mtime_state.mark_dirty(key.clone(), dirty);
 
-        eprintln!("{} dirty? {}", &key, dirty);
+        // eprintln!("{} dirty? {}", &key, dirty);
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
             // dependency is not available.
