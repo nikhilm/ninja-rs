@@ -1,16 +1,23 @@
-use anyhow::Error;
 use ninja_build::{
     build_externals, default_mtimestate, MTimeRebuilder, MTimeState, ParallelTopoScheduler,
 };
+use ninja_metrics::scoped_metric;
 // use ninja_interface::Scheduler;
 use ninja_desc::to_description;
 use ninja_parse::Parser;
 use ninja_tasks::description_to_tasks;
+use std::time::{Duration, Instant};
+
+fn spin() {
+    scoped_metric!("spin");
+}
 
 fn main() {
+    ninja_metrics::enable();
     let start = "build.ninja";
     let input = std::fs::read(start).expect("build.ninja");
     let ast = {
+        scoped_metric!("parse");
         // TODO: Better error.
         // 0. pulling in subninja and includes with correct scoping.
         // TODO
@@ -22,6 +29,7 @@ fn main() {
         result.unwrap()
     };
     let ast = {
+        scoped_metric!("analyze");
         let result = to_description(ast);
         if let Err(e) = result {
             eprintln!("ninjars: {}", e);
@@ -38,7 +46,10 @@ fn main() {
     // This should also deal with multiple output keys.
     // Since each scheduler has additional execution strategies around async-ness for example, we
     // don't spit out executable tasks, instead just having an enum.
-    let tasks = description_to_tasks(ast);
+    let tasks = {
+        scoped_metric!("to_tasks");
+        description_to_tasks(ast)
+    };
 
     // BTW, one way to model cheap string/byte references by index without having to pass lifetimes
     // and refs everywhere is to have things that need to go back tothe string/byte sequence
@@ -56,9 +67,14 @@ fn main() {
     let scheduler = ParallelTopoScheduler::new();
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
-    if let Err(e) = build_externals(scheduler, rebuilder, &tasks, ()) {
-        eprintln!("ninjars: {}", e);
-        std::process::exit(1);
+    {
+        scoped_metric!("build2");
+        scoped_metric!("build");
+        if let Err(e) = build_externals(scheduler, rebuilder, &tasks, ()) {
+            eprintln!("ninjars: {}", e);
+            std::process::exit(1);
+        }
     }
     // build log loading later
+    ninja_metrics::dump();
 }

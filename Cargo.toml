@@ -1,14 +1,14 @@
 [workspace]
 members = [
-    # Temporarily removed because it isn't going to cleanly build for a while.
     "build",
     "desc",
-    "tasks",
+    "metrics",
     "ninja",
     "parse",
+    "tasks",
 ]
 
 [profile.release]
-opt-level = 3
+opt-level = 'z'
 lto = true
 codegen-units = 1

@@ -1,4 +1,5 @@
 use super::TaskResult;
+use ninja_metrics::scoped_metric;
 use ninja_tasks::{Key, Task};
 use std::{
     cell::RefCell,
@@ -111,6 +112,7 @@ where
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(entry) => {
                 assert!(key.is_single());
+                scoped_metric!("stat");
                 let inserted = entry.insert(
                     self.disk
                         .modified(OsStr::from_bytes(key.as_bytes()))

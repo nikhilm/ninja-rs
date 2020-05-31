@@ -8,6 +8,7 @@ edition = "2018"
 # TODO: Move build description somewhere nicer.
 ninja-desc = { path = "../desc" }
 ninja-tasks = { path = "../tasks" }
+ninja-metrics = { path = "../metrics" }
 petgraph = "^0.5"
 crossbeam = "^0.7.3"
 thiserror = "^1.0"
