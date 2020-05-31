@@ -1,12 +1,13 @@
 pub use once_cell::unsync::Lazy;
 use std::{
+    cell::RefCell,
     fmt,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
 #[derive(Debug, Default)]
-pub struct Metric {
+struct Metric {
     name: &'static str,
     count: usize,
     sum: u128,
@@ -19,45 +20,55 @@ impl Metric {
     }
 }
 
-pub struct ScopedMetric {
-    metric: &'static mut Metric,
+pub struct ScopedMetric<'m> {
+    metric_index: usize,
+    metrics: &'m Metrics,
     start: Instant,
 }
-impl ScopedMetric {
-    pub fn new(metric: &'static mut Metric) -> Self {
+
+impl<'m> ScopedMetric<'m> {
+    fn new(metric_index: usize, metrics: &'m Metrics) -> Self {
         ScopedMetric {
-            metric,
+            metric_index,
+            metrics,
             start: Instant::now(),
         }
     }
 }
 
-impl Drop for ScopedMetric {
+impl<'a> Drop for ScopedMetric<'a> {
     fn drop(&mut self) {
-        self.metric.record(self.start.elapsed());
+        self.metrics.record(self.metric_index, self.start.elapsed());
     }
 }
 
 #[derive(Debug)]
-pub struct Metrics {
-    metrics: Vec<Box<Metric>>,
+struct Metrics {
+    metrics: Vec<RefCell<Metric>>,
 }
 
 impl Metrics {
-    pub fn new_metric(&mut self, name: &'static str) -> &mut Metric {
+    pub fn new_metric(&mut self, name: &'static str) -> usize {
         let len = self.metrics.len();
-        self.metrics.push(Box::new(Metric {
+        self.metrics.push(RefCell::new(Metric {
             name,
             ..Default::default()
         }));
-        &mut self.metrics[len]
+        len
+    }
+
+    fn record(&self, i: usize, elapsed: Duration) {
+        self.metrics[i].borrow_mut().record(elapsed);
     }
 }
 
 impl fmt::Display for Metrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let metrics = &self.metrics;
+
         let mut name_width = 7; // To fit "metric ".
-        for metric in &self.metrics {
+        for metric in metrics {
+            let metric = metric.borrow();
             name_width = std::cmp::max(name_width, metric.name.len());
         }
         write!(
@@ -78,14 +89,15 @@ impl fmt::Display for Metrics {
             "",
             name_width = name_width
         )?;
-        for metric in &self.metrics {
+        for metric in metrics {
+            let metric = metric.borrow();
             write!(
                 f,
                 "{:name_width$} {: >6} {:>9} {:>11.3}\n",
                 metric.name,
-                metric.sum,
                 metric.count,
                 metric.sum as f64 / metric.count as f64,
+                metric.sum,
                 name_width = name_width
             )?;
         }
@@ -98,16 +110,16 @@ macro_rules! scoped_metric {
     ($name:literal) => {
         // let _scoped_metric = new_scoped_metric($name);
         let _scoped_metric = if $crate::is_enabled() {
-            static mut _metric: $crate::Lazy<&mut $crate::Metric> =
-                $crate::Lazy::new(|| unsafe { $crate::METRICS.new_metric($name) });
-            ::core::option::Option::Some($crate::ScopedMetric::new(unsafe { &mut _metric }))
+            static mut _metric: $crate::Lazy<usize> =
+                $crate::Lazy::new(|| $crate::new_metric($name));
+            ::core::option::Option::Some($crate::new_scoped_metric(unsafe { *&*_metric }))
         } else {
             ::core::option::Option::None
         };
     };
 }
 
-pub static mut METRICS: Lazy<Metrics> = Lazy::new(|| Metrics { metrics: vec![] });
+static mut METRICS: Metrics = Metrics { metrics: vec![] };
 static mut ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn enable() {
@@ -119,5 +131,15 @@ pub fn is_enabled() -> bool {
 }
 
 pub fn dump() {
-    unsafe { eprintln!("{}", &*METRICS) };
+    unsafe {
+        eprintln!("{}", METRICS);
+    }
+}
+
+pub fn new_metric(name: &'static str) -> usize {
+    unsafe { METRICS.new_metric(name) }
+}
+
+pub fn new_scoped_metric<'a>(metric: usize) -> ScopedMetric<'a> {
+    ScopedMetric::new(metric, unsafe { &METRICS })
 }

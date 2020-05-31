@@ -26,6 +26,8 @@ fn main() {
     };
     let ast = {
         scoped_metric!("analyze");
+        // seems like each metric costs 3ms to set up :(
+        scoped_metric!("analyze");
         let result = to_description(ast);
         if let Err(e) = result {
             eprintln!("ninjars: {}", e);
