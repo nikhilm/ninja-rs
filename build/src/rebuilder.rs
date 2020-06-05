@@ -17,7 +17,7 @@ use std::os::unix::ffi::OsStrExt;
 use crate::{
     disk_interface::DiskInterface,
     interface::{BuildTask, Rebuilder},
-    task::{CommandTask, NoopTask},
+    task::CommandTask,
 };
 
 /**
@@ -178,7 +178,7 @@ where
         key: Key,
         _current_value: TaskResult,
         task: &Task,
-    ) -> Result<Box<dyn BuildTask<(), TaskResult> + Send>, RebuilderError> {
+    ) -> Result<Option<Box<dyn BuildTask<(), TaskResult> + Send>>, RebuilderError> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
 
@@ -294,10 +294,11 @@ where
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Ok(Box::new(CommandTask::new(task.command().unwrap().clone())))
+            Ok(Some(Box::new(CommandTask::new(
+                task.command().unwrap().clone(),
+            ))))
         } else {
-            // TODO: current value?
-            Ok(Box::new(NoopTask {}))
+            Ok(None)
         }
     }
 }
@@ -341,7 +342,8 @@ mod test {
         eprintln!("Task is command {}", task.is_command());
         let task = rebuilder
             .build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task)
-            .expect("valid task");
+            .expect("valid task")
+            .expect("non-null");
         assert!(task.is_command());
     }
 

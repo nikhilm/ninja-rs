@@ -32,7 +32,7 @@ where
         key: K,
         current_value: V,
         task: &Task,
-    ) -> Result<Box<dyn BuildTask<State, V> + Send>, RebuilderError>;
+    ) -> Result<Option<Box<dyn BuildTask<State, V> + Send>>, RebuilderError>;
 }
 
 pub trait Scheduler<K, V, State, BuildError, RebuilderError>

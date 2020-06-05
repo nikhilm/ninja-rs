@@ -11,14 +11,6 @@ where
 }
 
 #[derive(Debug)]
-pub struct NoopTask;
-impl BuildTask<(), TaskResult> for NoopTask {
-    fn run(&self, _state: &()) -> TaskResult {
-        TaskResult {}
-    }
-}
-
-#[derive(Debug)]
 pub struct CommandTask {
     command: String,
 }

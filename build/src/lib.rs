@@ -147,16 +147,25 @@ where
                                     return Err(From::from(e));
                                 }
                                 let build_task = rebuilder_result.unwrap();
-                                scope.enqueue(CommandPoolWrapperTask::new(
-                                    node, build_task, state_ref,
-                                ));
+                                if let Some(build_task) = build_task {
+                                    scope.enqueue(CommandPoolWrapperTask::new(
+                                        node, build_task, state_ref,
+                                    ));
+                                } else {
+                                    build_state.finish_node(&graph, node);
+                                }
                             } else {
                                 // No task, so this is a source and we are done.
                                 build_state.finish_node(&graph, node);
                             }
-                            // we were able to queue a task, so go back to the start of the loop.
+                            // One of N things happened.
+                            // We clearly had capacity, and we were able to find a ready task.
+                            // This means we "made progress", either enqueuing the task or
+                            // immediately marking it as done. So try to do more queueing.
                             continue;
                         }
+                        // We have capacity, but no ready task to run, so just wait for existing
+                        // tasks to make progress.
                     }
 
                     // we are either at full capacity, or can't make any progress on ready tasks, so
