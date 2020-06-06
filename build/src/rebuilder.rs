@@ -448,7 +448,6 @@ mod test {
         let rebuilder = MTimeRebuilder::new(state);
         let task = rebuilder.build(
             Key::Single(b"phony_target_that_does_not_exist".to_vec()),
-            TaskResult {},
             &Task {
                 dependencies: vec![],
                 variant: TaskVariant::Retrieve,
@@ -460,7 +459,6 @@ mod test {
         // cache should treat it as dirty.
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
-            TaskResult {},
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 variant: TaskVariant::Retrieve,
