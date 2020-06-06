@@ -1,14 +1,23 @@
+use structopt::StructOpt;
+
 use ninja_build::{
     build_externals, default_mtimestate, MTimeRebuilder, MTimeState, ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
 // use ninja_interface::Scheduler;
+use ninja::Config;
 use ninja_desc::to_description;
 use ninja_parse::Parser;
 use ninja_tasks::description_to_tasks;
 use std::time::{Duration, Instant};
 
 fn main() {
+    let config = Config::from_args();
+    dbg!(&config);
+    if let Some(dir) = config.execution_dir {
+        let _ = std::env::set_current_dir(dir).map_err(|_| std::process::exit(1));
+    }
+    return;
     ninja_metrics::enable();
     let start = "build.ninja";
     let input = std::fs::read(start).expect("build.ninja");
