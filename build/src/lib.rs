@@ -71,139 +71,6 @@ where
     }
 }
 
-impl<State> ParallelTopoScheduler<State>
-where
-    State: Sync,
-{
-    pub fn new() -> Self {
-        ParallelTopoScheduler {
-            _unused: std::marker::PhantomData::default(),
-        }
-    }
-
-    fn build_graph(tasks: &Tasks) -> SchedulerGraph {
-        let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
-        let mut graph = SchedulerGraph::new();
-        fn add_or_get_node<'a>(
-            map: &mut HashMap<&'a Key, NodeIndex>,
-            graph: &mut SchedulerGraph<'a>,
-            key: &'a Key,
-        ) -> NodeIndex {
-            match map.entry(key) {
-                Entry::Vacant(e) => {
-                    let node = graph.add_node(key);
-                    e.insert(node);
-                    node
-                }
-                Entry::Occupied(e) => *e.get(),
-            }
-        }
-        for (key, task) in tasks.all_tasks() {
-            let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
-            for dep in task.dependencies() {
-                let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
-                graph.add_edge(source, dep_node, ());
-            }
-        }
-        graph
-    }
-
-    fn schedule_internal(
-        &self,
-        rebuilder: CompatibleRebuilder<State>,
-        state: State,
-        tasks: &Tasks,
-        start: Option<Vec<Key>>,
-    ) -> Result<(), BuildError> {
-        assert!(start.is_none(), "not implemented non-externals yet");
-        let graph = Self::build_graph(&tasks);
-        let mut build_state = BuildState::default();
-
-        // Cannot use depth_first_search which doesn't say if it is postorder.
-        // Cannot use Topo since it doesn't offer move_to and partial traversals.
-        // TODO: So we really need to enforce no cycles here.
-        let mut visitor = DfsPostOrder::empty(&graph);
-        let externals = graph.externals(Direction::Incoming);
-        for start in externals {
-            visitor.move_to(start);
-            while let Some(node) = visitor.next(&graph) {
-                build_state.add_node(&graph, node);
-            }
-        }
-
-        let state_ref = &state;
-        let command_pool = CommandPool::new();
-        command_pool
-            .run(|scope| -> Result<(), BuildError> {
-                while !build_state.done() {
-                    // Inherently racy.
-                    if scope.has_capacity() {
-                        // we have capacity.
-                        if let Some(node) = build_state.next_ready() {
-                            let key = graph[node];
-                            if let Some(task) = tasks.task(key) {
-                                // TODO: handle error
-                                let rebuilder_result = rebuilder.build(key.clone(), task);
-                                if let Err(e) = rebuilder_result {
-                                    return Err(From::from(e));
-                                }
-                                let build_task = rebuilder_result.unwrap();
-                                if let Some(build_task) = build_task {
-                                    scope.enqueue(CommandPoolWrapperTask::new(
-                                        node, build_task, state_ref,
-                                    ));
-                                } else {
-                                    // Phony or something. Always succeeds.
-                                    build_state.finish_node(&graph, node, true);
-                                }
-                            } else {
-                                // No task, so this is a source and we are done.
-                                build_state.finish_node(&graph, node, true);
-                            }
-                            // One of N things happened.
-                            // We clearly had capacity, and we were able to find a ready task.
-                            // This means we "made progress", either enqueuing the task or
-                            // immediately marking it as done. So try to do more queueing.
-                            continue;
-                        }
-                        // We have capacity, but no ready task to run, so just wait for existing
-                        // tasks to make progress.
-                    }
-
-                    // we are either at full capacity, or waiting for tasks to finish so more tasks
-                    // can be ready, so wait for progress.
-                    let (node, result) = scope.rx.recv().unwrap();
-                    // Hmm... need a way to convey result to the outside world later, but keep going with
-                    // other tasks. In addition, don't want to pretend something is wrong with the
-                    // queue itself.
-                    if let Err(e) = result {
-                        // This will update ready and finished, so we will have made progress.
-                        build_state.finish_node(&graph, node, false);
-                        eprintln!("{}", e);
-                        if let CommandTaskError::CommandFailed(output) = e {
-                            eprintln!("{}", String::from_utf8(output.stderr).unwrap());
-                        }
-                    } else {
-                        // This will update ready and finished, so we will have made progress.
-                        build_state.finish_node(&graph, node, true);
-                    }
-                }
-                Ok(())
-            })
-            .map_err(|_| BuildError::CommandPoolPanic)
-            .and_then(|r| r)
-    }
-}
-
-impl<State> Default for ParallelTopoScheduler<State>
-where
-    State: Sync,
-{
-    fn default() -> Self {
-        ParallelTopoScheduler::new()
-    }
-}
-
 #[derive(Debug, Default)]
 struct BuildState {
     wanted: usize,
@@ -297,6 +164,132 @@ impl BuildState {
 #[derive(Debug)]
 pub struct ParallelTopoScheduler<State> {
     _unused: std::marker::PhantomData<State>,
+    parallelism: usize,
+}
+
+impl<State> ParallelTopoScheduler<State>
+where
+    State: Sync,
+{
+    pub fn new(parallelism: usize) -> Self {
+        ParallelTopoScheduler {
+            _unused: std::marker::PhantomData::default(),
+            parallelism,
+        }
+    }
+
+    fn build_graph(tasks: &Tasks) -> SchedulerGraph {
+        let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
+        let mut graph = SchedulerGraph::new();
+        fn add_or_get_node<'a>(
+            map: &mut HashMap<&'a Key, NodeIndex>,
+            graph: &mut SchedulerGraph<'a>,
+            key: &'a Key,
+        ) -> NodeIndex {
+            match map.entry(key) {
+                Entry::Vacant(e) => {
+                    let node = graph.add_node(key);
+                    e.insert(node);
+                    node
+                }
+                Entry::Occupied(e) => *e.get(),
+            }
+        }
+        for (key, task) in tasks.all_tasks() {
+            let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
+            for dep in task.dependencies() {
+                let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
+                graph.add_edge(source, dep_node, ());
+            }
+        }
+        graph
+    }
+
+    fn schedule_internal(
+        &self,
+        rebuilder: CompatibleRebuilder<State>,
+        state: State,
+        tasks: &Tasks,
+        start: Option<Vec<Key>>,
+    ) -> Result<(), BuildError> {
+        assert!(start.is_none(), "not implemented non-externals yet");
+        let graph = Self::build_graph(&tasks);
+        let mut build_state = BuildState::default();
+
+        // Cannot use depth_first_search which doesn't say if it is postorder.
+        // Cannot use Topo since it doesn't offer move_to and partial traversals.
+        // TODO: So we really need to enforce no cycles here.
+        let mut visitor = DfsPostOrder::empty(&graph);
+        let externals = graph.externals(Direction::Incoming);
+        for start in externals {
+            visitor.move_to(start);
+            while let Some(node) = visitor.next(&graph) {
+                build_state.add_node(&graph, node);
+            }
+        }
+
+        let state_ref = &state;
+        let command_pool = CommandPool::with_capacity(self.parallelism);
+        command_pool
+            .run(|scope| -> Result<(), BuildError> {
+                while !build_state.done() {
+                    // Inherently racy.
+                    if scope.has_capacity() {
+                        // we have capacity.
+                        if let Some(node) = build_state.next_ready() {
+                            let key = graph[node];
+                            if let Some(task) = tasks.task(key) {
+                                // TODO: handle error
+                                let rebuilder_result = rebuilder.build(key.clone(), task);
+                                if let Err(e) = rebuilder_result {
+                                    return Err(From::from(e));
+                                }
+                                let build_task = rebuilder_result.unwrap();
+                                if let Some(build_task) = build_task {
+                                    scope.enqueue(CommandPoolWrapperTask::new(
+                                        node, build_task, state_ref,
+                                    ));
+                                } else {
+                                    // Phony or something. Always succeeds.
+                                    build_state.finish_node(&graph, node, true);
+                                }
+                            } else {
+                                // No task, so this is a source and we are done.
+                                build_state.finish_node(&graph, node, true);
+                            }
+                            // One of N things happened.
+                            // We clearly had capacity, and we were able to find a ready task.
+                            // This means we "made progress", either enqueuing the task or
+                            // immediately marking it as done. So try to do more queueing.
+                            continue;
+                        }
+                        // We have capacity, but no ready task to run, so just wait for existing
+                        // tasks to make progress.
+                    }
+
+                    // we are either at full capacity, or waiting for tasks to finish so more tasks
+                    // can be ready, so wait for progress.
+                    let (node, result) = scope.rx.recv().unwrap();
+                    // Hmm... need a way to convey result to the outside world later, but keep going with
+                    // other tasks. In addition, don't want to pretend something is wrong with the
+                    // queue itself.
+                    if let Err(e) = result {
+                        // This will update ready and finished, so we will have made progress.
+                        build_state.finish_node(&graph, node, false);
+                        eprintln!("{}", e);
+                        if let CommandTaskError::CommandFailed(output) = e {
+                            eprintln!("{}", String::from_utf8(output.stderr).unwrap());
+                        }
+                    } else {
+                        // This will update ready and finished, so we will have made progress.
+                        build_state.finish_node(&graph, node, true);
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|_| BuildError::CommandPoolPanic)
+            .and_then(|r| r)
+    }
 }
 
 impl<State> Scheduler<Key, TaskResult, State, BuildError, RebuilderError>

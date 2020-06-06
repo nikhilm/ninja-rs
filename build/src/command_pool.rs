@@ -59,10 +59,6 @@ impl<T> CommandPool<T>
 where
     T: CommandPoolTask,
 {
-    pub fn new() -> Self {
-        Self::with_capacity(num_cpus::get())
-    }
-
     pub fn with_capacity(capacity: usize) -> Self {
         CommandPool {
             capacity,

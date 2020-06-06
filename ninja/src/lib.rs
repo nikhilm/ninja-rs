@@ -123,7 +123,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
     let rebuilder: MTimeRebuilder<_> = MTimeRebuilder::new(default_mtimestate());
-    let scheduler = ParallelTopoScheduler::new();
+    let scheduler = ParallelTopoScheduler::new(config.parallelism.0);
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
     {
