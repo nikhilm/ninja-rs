@@ -140,10 +140,7 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(data: &'a [u8], filename: Option<String>) -> Lexer<'a> {
-        let mut ch = 0;
-        if data.len() > 0 {
-            ch = data[0];
-        }
+        let ch = if !data.is_empty() { data[0] } else { 0 };
         Lexer {
             data,
             filename,
@@ -175,13 +172,13 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_horizontal_whitespace(&mut self) {
-        while self.ch == (' ' as u8) || self.ch == ('\t' as u8) {
+        while self.ch == b' ' || self.ch == b'\t' {
             self.advance();
         }
     }
 
     fn is_permitted_identifier_char(ch: u8) -> bool {
-        ch.is_ascii_alphanumeric() || ch == '_' as u8
+        ch.is_ascii_alphanumeric() || ch == b'_'
     }
 
     fn read_identifier(&mut self, pos: usize) -> Token<'a> {
@@ -293,7 +290,7 @@ impl<'a> Lexer<'a> {
             while i < self.data.len() {
                 // We could populate line offsets here, but since this is only called on errors, it
                 // isn't worth it.
-                if self.data[i] == ('\n' as u8) {
+                if self.data[i] == b'\n' {
                     break;
                 }
                 i += 1;
@@ -312,7 +309,7 @@ impl<'a> Lexer<'a> {
         // TODO: Handle \r\n
         let start = self.offset - 1; // Includes the '#' in the comment.
         let mut end = self.offset;
-        while !self.done() && self.ch != ('\n' as u8) {
+        while !self.done() && self.ch != b'\n' {
             end += 1;
             self.advance();
         }
@@ -433,6 +430,7 @@ type TokenPos<'a> = (Token<'a>, Pos);
 
 impl<'a> Iterator for Lexer<'a> {
     type Item = TokenPos<'a>;
+
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
     // other hand, leading whitespace is significant, and does affect the lexer. In addition, `$`
@@ -463,7 +461,7 @@ impl<'a> Iterator for Lexer<'a> {
             let pos = Pos(self.offset);
             let ch = self.ch;
 
-            if ch == ' ' as u8 || ch == '\t' as u8 {
+            if ch == b' ' || ch == b'\t' {
                 // If this marks the beginning of the current line, consume all whitespace as an indent,
                 // otherwise skip horizontal whitespace.
                 let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos.0;
@@ -477,23 +475,23 @@ impl<'a> Iterator for Lexer<'a> {
 
             // Always make progress.
             let next = self.advance();
-            return match ch as char {
+            return match ch {
                 // TODO: Windows line ending support.
                 // Also not sure if yielding a newline token in the general case really makes
                 // sense. Ninja is sensitive about that only in certain cases.
-                '\n' => {
+                b'\n' => {
                     self.record_line();
                     self.lexer_mode = LexerMode::Default;
                     Some((Token::Newline, pos))
                 }
-                '=' => {
+                b'=' => {
                     self.lexer_mode = LexerMode::ValueMode;
                     Some((Token::Equals, pos))
                 }
-                ':' => Some((Token::Colon, pos)),
-                '|' => {
+                b':' => Some((Token::Colon, pos)),
+                b'|' => {
                     if let Some(c) = next {
-                        if c == ('|' as u8) {
+                        if c == b'|' {
                             self.advance();
                             Some((Token::Pipe2, pos))
                         } else {
@@ -503,10 +501,10 @@ impl<'a> Iterator for Lexer<'a> {
                         Some((Token::Pipe, pos))
                     }
                 }
-                '$' => Some((Token::Escape, pos)),
+                b'$' => Some((Token::Escape, pos)),
                 // Ninja only allows comments on newlines, so the other modes treat this as a
                 // literal. we may want a warning or something.
-                '#' => Some((self.read_comment(), pos)),
+                b'#' => Some((self.read_comment(), pos)),
                 _ => self
                     .read_literal_or_ident(pos.0)
                     .map(|x| (x, pos))

@@ -41,12 +41,7 @@ impl Display for ParseError {
         write!(
             f,
             "{filename}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
-            filename = self
-                .position
-                .filename
-                .as_ref()
-                .map(|x| x.as_str())
-                .unwrap_or(""),
+            filename = self.position.filename.as_deref().unwrap_or(""),
             lineno = self.position.line,
             col = self.position.column,
             msg = self.message,
@@ -150,7 +145,7 @@ impl<'a> Parser<'a> {
         self.discard_indent()?;
         let (var, value) = self.read_assignment()?;
         // TODO: Move this to a semantic pass.
-        if var != "command".as_bytes() {
+        if var != b"command" {
             todo!("Don't know how to handle anything except command");
         }
         Ok(Rule {
@@ -162,11 +157,11 @@ impl<'a> Parser<'a> {
     fn parse_build(&mut self) -> Result<Build<'a>, ParseError> {
         // TODO: Support all kinds of optional outputs and dependencies.
         #[derive(Debug, PartialEq, Eq)]
-        enum State {
-            ReadFirstOutput,
-            ReadRemainingOutputs,
-            ReadRule,
-            ReadInputs,
+        enum Read {
+            FirstOutput,
+            RemainingOutputs,
+            Rule,
+            Inputs,
         };
 
         // I'd have really liked a Vec<&[u8]> here and then converting to an owned vec at the last
@@ -174,17 +169,17 @@ impl<'a> Parser<'a> {
         let mut outputs: Vec<&[u8]> = Vec::new();
         let mut inputs: Vec<&[u8]> = Vec::new();
         let mut rule = None;
-        let mut state = State::ReadFirstOutput;
+        let mut state = Read::FirstOutput;
         let mut first_line_pos = None;
         while let Some((token, pos)) = self.lexer.next() {
             if first_line_pos.is_none() {
                 first_line_pos = Some(pos);
             }
             match state {
-                State::ReadFirstOutput => match token {
+                Read::FirstOutput => match token {
                     Token::Path(v) => {
                         outputs.push(v);
-                        state = State::ReadRemainingOutputs;
+                        state = Read::RemainingOutputs;
                     }
                     _ => {
                         return Err(ParseError::new(
@@ -194,13 +189,13 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 },
-                State::ReadRemainingOutputs => match token {
+                Read::RemainingOutputs => match token {
                     Token::Path(v) => {
                         outputs.push(v);
-                        state = State::ReadRemainingOutputs;
+                        state = Read::RemainingOutputs;
                     }
                     Token::Colon => {
-                        state = State::ReadRule;
+                        state = Read::Rule;
                     }
                     _ => {
                         return Err(ParseError::new(
@@ -210,10 +205,10 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 },
-                State::ReadRule => match token {
+                Read::Rule => match token {
                     Token::Identifier(v) => {
                         rule = Some(v);
-                        state = State::ReadInputs;
+                        state = Read::Inputs;
                     }
                     _ => {
                         return Err(ParseError::new(
@@ -223,7 +218,7 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 },
-                State::ReadInputs => match token {
+                Read::Inputs => match token {
                     Token::Path(v) => {
                         inputs.push(v);
                     }
@@ -244,7 +239,7 @@ impl<'a> Parser<'a> {
         // TODO: Read remaining lines as bindings as long as indents are encountered.
 
         // EOF is OK as long as our state machine is done.
-        if state == State::ReadInputs {
+        if state == Read::Inputs {
             Ok(Build {
                 rule: rule.take().unwrap(),
                 inputs,

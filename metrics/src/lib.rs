@@ -71,18 +71,18 @@ impl fmt::Display for Metrics {
         for metric in metrics {
             name_width = std::cmp::max(name_width, metric.name.len());
         }
-        write!(
+        writeln!(
             f,
-            "{:name_width$} {:>6} {:>9} {:>11}\n",
+            "{:name_width$} {:>6} {:>9} {:>11}",
             "metric ",
             "count",
             "avg (us)",
             "total (us)",
             name_width = name_width
         )?;
-        write!(
+        writeln!(
             f,
-            "{:-<name_width$} {:-^6} {:-^9} {:-^11}\n",
+            "{:-<name_width$} {:-^6} {:-^9} {:-^11}",
             "",
             "",
             "",
@@ -90,9 +90,9 @@ impl fmt::Display for Metrics {
             name_width = name_width
         )?;
         for metric in metrics {
-            write!(
+            writeln!(
                 f,
-                "{:name_width$} {: >6} {:>9.3} {:>11}\n",
+                "{:name_width$} {: >6} {:>9.3} {:>11}",
                 metric.name,
                 metric.count,
                 metric.sum as f64 / metric.count as f64,

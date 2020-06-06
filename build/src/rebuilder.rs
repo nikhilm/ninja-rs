@@ -5,10 +5,8 @@ use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
     ffi::OsStr,
-    fs::metadata,
-    path::Path,
     string::FromUtf8Error,
-    time::{SystemTime, UNIX_EPOCH},
+    time::SystemTime,
 };
 use thiserror::Error;
 
@@ -193,11 +191,9 @@ where
                         None,
                         |so_far, current_key| -> Result<Option<Dirtiness>, RebuilderError> {
                             let dirty = self.mtime_state.modified(current_key.clone())?;
-                            if so_far.is_none() {
-                                Ok(Some(dirty))
-                            } else {
-                                let so_far = so_far.unwrap();
-                                Ok(Some(match (so_far, dirty) {
+                            match so_far {
+                                None => Ok(Some(dirty)),
+                                Some(so_far) => Ok(Some(match (so_far, dirty) {
                                     // If we get 2 mtimes, we compare them and return the smaller one.
                                     // Everything else means at least one output is missing or dirty, which
                                     // translates to everything being dirty.
@@ -207,7 +203,7 @@ where
                                     ) => Dirtiness::Modified(std::cmp::min(so_far, this_one)),
                                     // Dirty wins over everything else.
                                     _ => Dirtiness::Dirty,
-                                }))
+                                })),
                             }
                         },
                     )?
@@ -246,21 +242,23 @@ where
                                     output,
                                 })
                             } else {
-                                Ok(if so_far.is_none() {
-                                    Some(dep_mtime)
-                                } else {
-                                    let so_far = so_far.unwrap();
-                                    assert_ne!(so_far, Dirtiness::DoesNotExist);
-                                    assert_ne!(dep_mtime, Dirtiness::DoesNotExist);
-                                    Some(match (so_far, dep_mtime) {
-                                        // max of inputs, so we can check if newest input is older than
-                                        // oldest output.
-                                        (
-                                            Dirtiness::Modified(so_far),
-                                            Dirtiness::Modified(dep_mtime),
-                                        ) => Dirtiness::Modified(std::cmp::max(so_far, dep_mtime)),
-                                        _ => Dirtiness::Dirty,
-                                    })
+                                Ok(match so_far {
+                                    None => Some(dep_mtime),
+                                    Some(so_far) => {
+                                        assert_ne!(so_far, Dirtiness::DoesNotExist);
+                                        assert_ne!(dep_mtime, Dirtiness::DoesNotExist);
+                                        Some(match (so_far, dep_mtime) {
+                                            // max of inputs, so we can check if newest input is older than
+                                            // oldest output.
+                                            (
+                                                Dirtiness::Modified(so_far),
+                                                Dirtiness::Modified(dep_mtime),
+                                            ) => Dirtiness::Modified(std::cmp::max(
+                                                so_far, dep_mtime,
+                                            )),
+                                            _ => Dirtiness::Dirty,
+                                        })
+                                    }
                                 })
                             }
                         }
@@ -284,7 +282,7 @@ where
             true
         };
 
-        self.mtime_state.mark_dirty(key.clone(), dirty);
+        self.mtime_state.mark_dirty(key, dirty);
 
         // eprintln!("{} dirty? {}", &key, dirty);
         if dirty && task.is_command() {
@@ -307,6 +305,7 @@ mod test {
     use insta::assert_display_snapshot;
     use std::{
         io::{Error, ErrorKind, Result},
+        path::Path,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 

@@ -2,7 +2,6 @@ use crossbeam::{
     deque::{Injector, Steal},
     scope,
 };
-use num_cpus;
 use scopeguard::{defer, defer_on_unwind};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -246,7 +245,7 @@ mod test {
         let counter = Arc::new(AtomicUsize::default());
         let pool = CommandPool::new();
         pool.run(|s| {
-            for i in 0..20 {
+            for _i in 0..20 {
                 s.enqueue(adding_task!(counter.clone()));
             }
         })

@@ -180,11 +180,8 @@ where
                         // This will update ready and finished, so we will have made progress.
                         build_state.finish_node(&graph, node, false);
                         eprintln!("{}", e);
-                        match e {
-                            CommandTaskError::CommandFailed(output) => {
-                                eprintln!("{}", String::from_utf8(output.stderr).unwrap());
-                            }
-                            _ => {}
+                        if let CommandTaskError::CommandFailed(output) = e {
+                            eprintln!("{}", String::from_utf8(output.stderr).unwrap());
                         }
                     } else {
                         // This will update ready and finished, so we will have made progress.
@@ -195,6 +192,15 @@ where
             })
             .map_err(|_| BuildError::CommandPoolPanic)
             .and_then(|r| r)
+    }
+}
+
+impl<State> Default for ParallelTopoScheduler<State>
+where
+    State: Sync,
+{
+    fn default() -> Self {
+        ParallelTopoScheduler::new()
     }
 }
 

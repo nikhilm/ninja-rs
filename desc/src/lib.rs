@@ -71,7 +71,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
                 [112, 104, 111, 110, 121] => Action::Phony,
                 other => {
                     let rule = rules.get(other);
-                    if let None = rule {
+                    if rule.is_none() {
                         return Err(ProcessingError::UnknownRule(
                             std::str::from_utf8(other)?.to_owned(),
                         ));

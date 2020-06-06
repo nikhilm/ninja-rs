@@ -102,9 +102,9 @@ impl Display for Tasks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let format_single = |key: &Key| -> String {
             if let Key::Single(ref bytes) = key {
-                format!("{}", std::str::from_utf8(bytes).unwrap())
+                std::str::from_utf8(bytes).unwrap().to_string()
             } else {
-                panic!("Should not come here");
+                unreachable!()
             }
         };
 
@@ -131,7 +131,7 @@ impl Display for Tasks {
                 write_key(f, key)?;
                 write!(f, ", ")?;
             }
-            write!(f, "]\n")?;
+            writeln!(f, "]")?;
         }
         write!(f, "}}")
     }
