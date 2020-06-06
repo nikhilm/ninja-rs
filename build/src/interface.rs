@@ -30,7 +30,7 @@ where
     fn build(
         &self,
         key: K,
-        current_value: V,
+        // current_value: V,
         task: &Task,
     ) -> Result<Option<Box<dyn BuildTask<State, V> + Send>>, RebuilderError>;
 }

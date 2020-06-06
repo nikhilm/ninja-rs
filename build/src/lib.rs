@@ -18,11 +18,11 @@ use command_pool::{CommandPool, CommandPoolTask};
 use disk_interface::SystemDiskInterface;
 use interface::*;
 pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
+use task::{CommandTaskError, CommandTaskResult};
 
 // Needs to be public for some weird reason.
 // This genericity is getting very wonky.
-#[derive(Debug)]
-pub struct TaskResult {}
+type TaskResult = CommandTaskResult;
 
 type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State, RebuilderError>);
 type CompatibleBuildTask<State> = Box<dyn BuildTask<State, TaskResult> + Send>;
@@ -35,6 +35,8 @@ pub enum BuildError {
     RebuilderError(#[from] RebuilderError),
     #[error("command pool panic")]
     CommandPoolPanic,
+    #[error("command failed {0}")]
+    CommandFailed(#[from] CommandTaskError),
 }
 
 struct CommandPoolWrapperTask<'a, State>
@@ -141,8 +143,7 @@ where
                             let key = graph[node];
                             if let Some(task) = tasks.task(key) {
                                 // TODO: handle error
-                                let rebuilder_result =
-                                    rebuilder.build(key.clone(), TaskResult {}, task);
+                                let rebuilder_result = rebuilder.build(key.clone(), task);
                                 if let Err(e) = rebuilder_result {
                                     return Err(From::from(e));
                                 }
@@ -152,11 +153,12 @@ where
                                         node, build_task, state_ref,
                                     ));
                                 } else {
-                                    build_state.finish_node(&graph, node);
+                                    // Phony or something. Always succeeds.
+                                    build_state.finish_node(&graph, node, true);
                                 }
                             } else {
                                 // No task, so this is a source and we are done.
-                                build_state.finish_node(&graph, node);
+                                build_state.finish_node(&graph, node, true);
                             }
                             // One of N things happened.
                             // We clearly had capacity, and we were able to find a ready task.
@@ -168,11 +170,26 @@ where
                         // tasks to make progress.
                     }
 
-                    // we are either at full capacity, or can't make any progress on ready tasks, so
-                    // wait for something to be done.
-                    let (node, _result) = scope.rx.recv().unwrap();
-                    // This will update ready and finished, so we will have made progress.
-                    build_state.finish_node(&graph, node);
+                    // we are either at full capacity, or waiting for tasks to finish so more tasks
+                    // can be ready, so wait for progress.
+                    let (node, result) = scope.rx.recv().unwrap();
+                    // Hmm... need a way to convey result to the outside world later, but keep going with
+                    // other tasks. In addition, don't want to pretend something is wrong with the
+                    // queue itself.
+                    if let Err(e) = result {
+                        // This will update ready and finished, so we will have made progress.
+                        build_state.finish_node(&graph, node, false);
+                        eprintln!("{}", e);
+                        match e {
+                            CommandTaskError::CommandFailed(output) => {
+                                eprintln!("{}", String::from_utf8(output.stderr).unwrap());
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // This will update ready and finished, so we will have made progress.
+                        build_state.finish_node(&graph, node, true);
+                    }
                 }
                 Ok(())
             })
@@ -211,13 +228,16 @@ impl BuildState {
         }
     }
 
-    pub fn finish_node(&mut self, graph: &SchedulerGraph, node: NodeIndex) {
-        self.finished.insert(node);
+    fn finish_node_success(&mut self, graph: &SchedulerGraph, node: NodeIndex) {
         // See if this freed up any pending tasks to run.
         for dependent in graph.neighbors_directed(node, Direction::Incoming) {
             if !self.waiting_tasks.contains(&dependent) {
+                // This dependent must've already failed due to another dependency.
+                // TODO: Wish we could assert it has failed.
+                debug_assert!(self.finished.contains(&dependent));
                 continue;
             }
+            debug_assert!(!self.finished.contains(&dependent));
             if graph
                 .neighbors_directed(dependent, Direction::Outgoing)
                 .all(|dependency| self.finished.contains(&dependency))
@@ -225,6 +245,45 @@ impl BuildState {
                 self.waiting_tasks.remove(&dependent);
                 self.ready.push_back(dependent);
             }
+        }
+    }
+
+    /*
+     *             (A) [running]   (B) [fails]
+     *               \    /
+     *                 (C) [waiting] -> [finished]
+     */
+
+    fn finish_node_error(&mut self, graph: &SchedulerGraph, node: NodeIndex) {
+        for dependent in graph.neighbors_directed(node, Direction::Incoming) {
+            if !self.waiting_tasks.contains(&dependent) {
+                debug_assert!(self.finished.contains(&dependent));
+                continue;
+            }
+            debug_assert!(!self.finished.contains(&dependent));
+            self.waiting_tasks.remove(&dependent);
+            self.finished.insert(dependent);
+            // Recursively fail all tasks.
+            self.finish_node_error(graph, dependent);
+        }
+    }
+
+    pub fn finish_node(&mut self, graph: &SchedulerGraph, node: NodeIndex, succeeded: bool) {
+        // Mark the task as finished regardless of failure.
+        self.finished.insert(node);
+
+        // See if any further tasks can be kicked off.
+        if succeeded {
+            self.finish_node_success(graph, node);
+        } else {
+            // OK. We want to make sure tasks that depend on this do not run (recursively), but
+            // we still make progress.
+            // We could mark dependents as done. We can assert that they are not in the ready
+            // queue already. We can assert they are in the waiting queue. Then remove them
+            // from waiting.
+            // What do we mark them finished as? i.e. if we mark as success, dependents will be
+            // queued up and run commands. We specifically want to fail them all.
+            self.finish_node_error(graph, node);
         }
     }
 }

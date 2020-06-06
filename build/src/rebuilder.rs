@@ -176,7 +176,6 @@ where
     fn build(
         &self,
         key: Key,
-        _current_value: TaskResult,
         task: &Task,
     ) -> Result<Option<Box<dyn BuildTask<(), TaskResult> + Send>>, RebuilderError> {
         // This function obviously needs a lot of error handling.
@@ -341,7 +340,7 @@ mod test {
         };
         eprintln!("Task is command {}", task.is_command());
         let task = rebuilder
-            .build(Key::Single(b"foo.o".to_vec()), TaskResult {}, &task)
+            .build(Key::Single(b"foo.o".to_vec()), &task)
             .expect("valid task")
             .expect("non-null");
         assert!(task.is_command());
@@ -371,7 +370,6 @@ mod test {
         // "dirtiness" state instead of a mtimestate.
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
-            TaskResult {},
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 variant: TaskVariant::Retrieve,
@@ -387,7 +385,6 @@ mod test {
 
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
-            TaskResult {},
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 variant: TaskVariant::Command("whatever".to_string()),
@@ -424,7 +421,6 @@ mod test {
                 Key::Single(b"phony_user".to_vec()),
                 Key::Single(b"phony_user2".to_vec()),
             ]),
-            TaskResult {},
             &task,
         );
         assert!(task.is_err());

@@ -1,4 +1,6 @@
-use std::process::Command;
+use std::process::{Command, Output};
+
+use thiserror::Error;
 
 use crate::interface::BuildTask;
 
@@ -10,6 +12,16 @@ where
 {
 }
 
+#[derive(Error, Debug)]
+pub enum CommandTaskError {
+    #[error("{0}")]
+    SpawnFailed(#[from] std::io::Error),
+    #[error("failed with {}", .0.status)]
+    CommandFailed(Output),
+}
+
+pub type CommandTaskResult = Result<Output, CommandTaskError>;
+
 #[derive(Debug)]
 pub struct CommandTask {
     command: String,
@@ -20,15 +32,16 @@ impl CommandTask {
         CommandTask { command }
     }
 
-    pub fn run_command(&self) -> TaskResult {
+    pub fn run_command(&self) -> CommandTaskResult {
         eprintln!("{}", &self.command);
-        Command::new("/bin/sh")
+        let output = Command::new("/bin/sh")
             .arg("-c")
             .arg(&self.command)
-            .status()
-            .expect("success");
-        // TODO: Handle failure here and throughout the build graph.
-        TaskResult {}
+            .output()?;
+        if !output.status.success() {
+            return Err(CommandTaskError::CommandFailed(output));
+        }
+        Ok(output)
     }
 }
 
