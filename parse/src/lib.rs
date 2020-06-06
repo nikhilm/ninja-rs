@@ -2,13 +2,15 @@
 
 use std::fmt::{Display, Formatter};
 
+use thiserror::Error;
+
 pub mod ast;
 mod lexer;
 
 use ast::*;
 use lexer::{Lexer, Position, Token};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub struct ParseError {
     position: Position,
     line: String,
