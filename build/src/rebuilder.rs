@@ -312,27 +312,36 @@ mod test {
     use super::*;
     use ninja_tasks::*;
 
+    macro_rules! mocked_rebuilder {
+        ($path:ident, $body:expr) => {{
+            struct MockDiskInterface {}
+
+            impl DiskInterface for MockDiskInterface {
+                fn modified<P: AsRef<Path>>(&self, $path: P) -> Result<SystemTime> {
+                    $body
+                }
+            }
+
+            let mock_disk = MockDiskInterface {};
+            let state = $crate::MTimeState::new(mock_disk);
+            $crate::MTimeRebuilder::new(state)
+        }};
+        ($body:expr) => {
+            mocked_rebuilder! {_unused, $body}
+        };
+    }
+
     // We need enough flexibility that we can test mock paths with mock mtimes and simulate the
     // relevant results we want. It would be nice to feed that to the actual rebuilder build fn.
     #[test]
     fn test_basic() {
-        struct MockDiskInterface {}
-
-        impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, p: P) -> Result<SystemTime> {
+        let rebuilder = mocked_rebuilder! {p,
                 if p.as_ref() == Path::new("foo.c") {
                     Ok(UNIX_EPOCH.checked_add(Duration::from_secs(100)).unwrap())
                 } else {
                     Err(Error::new(ErrorKind::NotFound, "mock not found"))
                 }
-            }
-        }
-
-        // TODO: Starting point for making the rebuilder depend more on the state and "fixing"
-        // the state to be more trait-y as well as not always depend on IO.
-        let mock_disk = MockDiskInterface {};
-        let state = MTimeState::new(mock_disk);
-        let rebuilder = MTimeRebuilder::new(state);
+        };
         let task = Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
@@ -348,17 +357,9 @@ mod test {
     /// A rule where the input does not exist should fail.
     #[test]
     fn test_input_does_not_exist() {
-        struct MockDiskInterface {}
-
-        impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
+        let rebuilder = mocked_rebuilder! {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
-            }
-        }
-
-        let mock_disk = MockDiskInterface {};
-        let state = MTimeState::new(mock_disk);
-        let rebuilder = MTimeRebuilder::new(state);
+        };
         // What we really want in this test is that if the input is not itself an output of
         // something else, then we want to error if it does not exist.
         // What we know: inputs MUST exist by the time a task is executed, because the scheduler
@@ -400,17 +401,9 @@ mod test {
 
     #[test]
     fn test_input_does_not_exist_multiple_out_error_message() {
-        struct MockDiskInterface {}
-
-        impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
+        let rebuilder = mocked_rebuilder! {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
-            }
-        }
-
-        let mock_disk = MockDiskInterface {};
-        let state = MTimeState::new(mock_disk);
-        let rebuilder = MTimeRebuilder::new(state);
+        };
         let task = Task {
             dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
             variant: TaskVariant::Retrieve,
@@ -433,18 +426,10 @@ mod test {
 
     #[test]
     fn test_phony_input() {
-        struct MockDiskInterface {}
-
-        impl DiskInterface for MockDiskInterface {
-            fn modified<P: AsRef<Path>>(&self, _: P) -> Result<SystemTime> {
+        let rebuilder = mocked_rebuilder! {
                 // This test should not hit disk.
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
-            }
-        }
-
-        let mock_disk = MockDiskInterface {};
-        let state = MTimeState::new(mock_disk);
-        let rebuilder = MTimeRebuilder::new(state);
+        };
         let task = rebuilder.build(
             Key::Single(b"phony_target_that_does_not_exist".to_vec()),
             &Task {
@@ -464,5 +449,14 @@ mod test {
             },
         );
         assert!(task.is_ok());
+    }
+
+    #[test]
+    fn test_older_input() {
+        let rebuilder = mocked_rebuilder! {
+                        // This test should not hit disk.
+                        Err(Error::new(ErrorKind::NotFound, "mock not found"))
+        };
+        // todo!();
     }
 }

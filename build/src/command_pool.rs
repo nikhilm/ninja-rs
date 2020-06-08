@@ -205,7 +205,7 @@ mod test {
         // all threads should exit.
         let counter = Arc::new(AtomicU8::default());
 
-        let pool = CommandPool::new();
+        let pool = CommandPool::with_capacity(1);
         pool.run(|s| {
             s.enqueue(panicking_task!(false, counter.clone()));
             s.enqueue(panicking_task!(true));
@@ -223,7 +223,7 @@ mod test {
         let counter = Arc::new(AtomicU8::default());
 
         std::panic::catch_unwind(|| {
-            let pool = CommandPool::new();
+            let pool = CommandPool::with_capacity(1);
             let _ = pool.run(|s| {
                 s.enqueue(panicking_task!(false, counter.clone()));
                 s.enqueue(panicking_task!(false, counter.clone()));
@@ -239,7 +239,7 @@ mod test {
     fn test_main_did_not_consume() {
         // test that main shutdown returns but _after_ finishing pending tasks.
         let counter = Arc::new(AtomicUsize::default());
-        let pool = CommandPool::new();
+        let pool = CommandPool::with_capacity(1);
         pool.run(|s| {
             for _i in 0..20 {
                 s.enqueue(adding_task!(counter.clone()));
