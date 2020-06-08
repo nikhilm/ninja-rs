@@ -2,6 +2,7 @@ use std::fmt;
 
 use anyhow::{self, Context};
 use structopt::StructOpt;
+use thiserror::Error;
 
 use ninja_build::{build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler};
 use ninja_desc::to_description;
@@ -60,6 +61,43 @@ impl std::str::FromStr for NumCpus {
     }
 }
 
+/// Nothing to do with rustc debug vs. release.
+/// This is just ninja terminology.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DebugMode {
+    Stats,
+}
+
+#[derive(Error, Debug)]
+pub enum DebugModeError {
+    #[error("Unknown debug setting {0}")]
+    Unknown(String),
+
+    #[error(
+        "
+debugging modes:
+  stats        print operation counts/timing info
+  explain      explain what caused a command to execute
+  keepdepfile  don't delete depfiles after they're read by ninja
+  keeprsp      don't delete @response files on success
+multiple modes can be enabled via -d FOO -d BAR
+"
+    )]
+    List,
+}
+
+impl std::str::FromStr for DebugMode {
+    type Err = DebugModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "stats" => Ok(DebugMode::Stats),
+            "list" => Err(DebugModeError::List),
+            e @ _ => Err(DebugModeError::Unknown(e.to_owned())),
+        }
+    }
+}
+
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "ninjars",
@@ -74,22 +112,37 @@ pub struct Config {
     /// run N jobs in parallel
     #[structopt(short = "-j", default_value, name = "N")]
     pub parallelism: NumCpus,
+
+    /// specify input build file
+    #[structopt(short = "-f", default_value = "build.ninja", name = "FILE")]
+    pub build_file: String,
+
+    /// enable debugging (use -d list to list modes)
+    #[structopt(short = "-d", name = "MODE")]
+    pub debug_modes: Option<Vec<DebugMode>>,
 }
 
 pub fn run(config: Config) -> anyhow::Result<()> {
-    if let Some(dir) = config.execution_dir {
+    if let Some(dir) = &config.execution_dir {
         std::env::set_current_dir(&dir).with_context(|| format!("changing to {} for -C", &dir))?;
     }
 
-    ninja_metrics::enable();
-    let start = "build.ninja";
-    let input = std::fs::read(start).expect("build.ninja");
+    let metrics_enabled = config
+        .debug_modes
+        .as_ref()
+        .map(|vs| vs.iter().any(|v| v == &DebugMode::Stats))
+        .unwrap_or_default();
+    if metrics_enabled {
+        ninja_metrics::enable();
+    }
+    let input = std::fs::read(&config.build_file)
+        .with_context(|| format!("ninja file {}", &config.build_file))?;
     let ast = {
         scoped_metric!("parse");
         // TODO: Better error.
         // 0. pulling in subninja and includes with correct scoping.
         // TODO
-        Parser::new(&input, Some(start.to_owned())).parse()?
+        Parser::new(&input, Some(config.build_file.clone())).parse()?
     };
     let ast = {
         scoped_metric!("analyze");
@@ -131,6 +184,8 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         build_externals(scheduler, rebuilder, &tasks, ())?;
     }
     // build log loading later
-    ninja_metrics::dump();
+    if metrics_enabled {
+        ninja_metrics::dump();
+    }
     Ok(())
 }
