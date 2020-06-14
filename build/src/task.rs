@@ -1,4 +1,5 @@
-use std::process::{Command, Output};
+use std::process::Output;
+use tokio::process::Command;
 
 use thiserror::Error;
 
@@ -6,9 +7,9 @@ use crate::interface::BuildTask;
 
 use crate::TaskResult;
 
-pub trait ParallelTopoTask<State>: BuildTask<State, TaskResult>
-where
-    State: Sync,
+use async_trait::async_trait;
+
+pub trait ParallelTopoTask: BuildTask<TaskResult>
 {
 }
 
@@ -32,12 +33,13 @@ impl CommandTask {
         CommandTask { command }
     }
 
-    pub fn run_command(&self) -> CommandTaskResult {
+    pub async fn run_command(&self) -> CommandTaskResult {
         eprintln!("{}", &self.command);
         let output = Command::new("/bin/sh")
             .arg("-c")
             .arg(&self.command)
-            .output()?;
+            .output()
+            .await?;
         if !output.status.success() {
             return Err(CommandTaskError::CommandFailed(output));
         }
@@ -45,9 +47,10 @@ impl CommandTask {
     }
 }
 
-impl BuildTask<(), TaskResult> for CommandTask {
-    fn run(&self, _state: &()) -> TaskResult {
-        self.run_command()
+#[async_trait(?Send)]
+impl BuildTask<TaskResult> for CommandTask {
+    async fn run(&self) -> TaskResult {
+            self.run_command().await
     }
 
     #[cfg(test)]

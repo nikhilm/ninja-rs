@@ -167,7 +167,7 @@ pub enum RebuilderError {
     IOError(#[from] std::io::Error),
 }
 
-impl<Disk> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<Disk>
+impl<Disk> Rebuilder<Key, TaskResult, RebuilderError> for MTimeRebuilder<Disk>
 where
     Disk: DiskInterface,
 {
@@ -175,7 +175,7 @@ where
         &self,
         key: Key,
         task: &Task,
-    ) -> Result<Option<Box<dyn BuildTask<(), TaskResult> + Send>>, RebuilderError> {
+    ) -> Result<Option<Box<dyn BuildTask<TaskResult>>>, RebuilderError> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
 

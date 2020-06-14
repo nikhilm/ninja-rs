@@ -14,6 +14,14 @@ crossbeam = "^0.7.3"
 thiserror = "^1.0"
 scopeguard = "^1.1"
 
+futures = "0.3"
+async-trait = "0.1"
+
+[dependencies.tokio]
+version = "0.2"
+default-features = false
+features = ["sync", "rt-core", "process", "rt-util"]
+
 [dev-dependencies]
 insta = "^0.16.0"
 

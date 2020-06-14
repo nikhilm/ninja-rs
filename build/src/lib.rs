@@ -1,5 +1,7 @@
 extern crate petgraph;
 
+use tokio::{runtime::Builder, sync::Semaphore, task::LocalSet};
+
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
@@ -8,13 +10,11 @@ use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 // use ninja_desc::{BuildGraph, TaskResult, TasksMap};
 use ninja_tasks::{Key, Tasks};
 
-mod command_pool;
 pub mod disk_interface;
 mod interface;
 mod rebuilder;
 mod task;
 
-use command_pool::{CommandPool, CommandPoolTask};
 use disk_interface::SystemDiskInterface;
 use interface::*;
 pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
@@ -24,8 +24,7 @@ use task::{CommandTaskError, CommandTaskResult};
 // This genericity is getting very wonky.
 type TaskResult = CommandTaskResult;
 
-type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State, RebuilderError>);
-type CompatibleBuildTask<State> = Box<dyn BuildTask<State, TaskResult> + Send>;
+type CompatibleRebuilder<'a> = &'a (dyn Rebuilder<Key, TaskResult, RebuilderError>);
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
@@ -37,38 +36,6 @@ pub enum BuildError {
     CommandPoolPanic,
     #[error("command failed {0}")]
     CommandFailed(#[from] CommandTaskError),
-}
-
-struct CommandPoolWrapperTask<'a, State>
-where
-    State: Sync,
-{
-    node: NodeIndex,
-    task: CompatibleBuildTask<State>,
-    state_ref: &'a State,
-}
-
-impl<'a, State> CommandPoolWrapperTask<'a, State>
-where
-    State: Sync,
-{
-    pub fn new(node: NodeIndex, task: CompatibleBuildTask<State>, state_ref: &'a State) -> Self {
-        CommandPoolWrapperTask {
-            node,
-            task,
-            state_ref,
-        }
-    }
-}
-impl<'a, State> CommandPoolTask for CommandPoolWrapperTask<'a, State>
-where
-    State: Sync,
-{
-    type Result = (NodeIndex, TaskResult);
-
-    fn run(&self) -> Self::Result {
-        (self.node, self.task.run(self.state_ref))
-    }
 }
 
 #[derive(Debug, Default)]
@@ -207,7 +174,7 @@ where
 
     fn schedule_internal(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
+        rebuilder: CompatibleRebuilder,
         state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
@@ -228,67 +195,74 @@ where
             }
         }
 
-        let state_ref = &state;
-        let command_pool = CommandPool::with_capacity(self.parallelism);
-        command_pool
-            .run(|scope| -> Result<(), BuildError> {
-                while !build_state.done() {
-                    // Inherently racy.
-                    if scope.has_capacity() {
-                        // we have capacity.
-                        if let Some(node) = build_state.next_ready() {
-                            let key = graph[node];
-                            if let Some(task) = tasks.task(key) {
-                                // TODO: handle error
-                                let rebuilder_result = rebuilder.build(key.clone(), task);
-                                if let Err(e) = rebuilder_result {
-                                    return Err(From::from(e));
-                                }
-                                let build_task = rebuilder_result.unwrap();
-                                if let Some(build_task) = build_task {
-                                    scope.enqueue(CommandPoolWrapperTask::new(
-                                        node, build_task, state_ref,
-                                    ));
-                                } else {
-                                    // Phony or something. Always succeeds.
-                                    build_state.finish_node(&graph, node, true);
-                                }
-                            } else {
-                                // No task, so this is a source and we are done.
-                                build_state.finish_node(&graph, node, true);
-                            }
-                            // One of N things happened.
-                            // We clearly had capacity, and we were able to find a ready task.
-                            // This means we "made progress", either enqueuing the task or
-                            // immediately marking it as done. So try to do more queueing.
-                            continue;
-                        }
-                        // We have capacity, but no ready task to run, so just wait for existing
-                        // tasks to make progress.
-                    }
+        let local_set = LocalSet::new();
+        let mut runtime = Builder::new()
+            .enable_all()
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
 
-                    // we are either at full capacity, or waiting for tasks to finish so more tasks
-                    // can be ready, so wait for progress.
-                    let (node, result) = scope.rx.recv().unwrap();
-                    // Hmm... need a way to convey result to the outside world later, but keep going with
-                    // other tasks. In addition, don't want to pretend something is wrong with the
-                    // queue itself.
-                    if let Err(e) = result {
-                        // This will update ready and finished, so we will have made progress.
-                        build_state.finish_node(&graph, node, false);
-                        eprintln!("{}", e);
-                        if let CommandTaskError::CommandFailed(output) = e {
-                            eprintln!("{}", String::from_utf8(output.stderr).unwrap());
+        let mut pending = Vec::new();
+        // Need to leak this to ensure it stays alive for the lifetime of async tasks.
+        // Even though in our setup we can guarantee they will finish before block_on does, still
+        // need to figure out how to make the tokio APIs play with that. May just have to wait for
+        // Structured Concurrency.
+        let sem: &'static Semaphore = Box::leak(Box::new(Semaphore::new(self.parallelism)));
+        local_set.block_on(&mut runtime, async {
+            while !build_state.done() {
+                if let Some(node) = build_state.next_ready() {
+                    let key = graph[node];
+                    if let Some(task) = tasks.task(key) {
+                        // TODO: handle error
+                        let rebuilder_result = rebuilder.build(key.clone(), task);
+                        if let Err(e) = rebuilder_result {
+                            return Err(From::from(e));
+                        }
+                        let build_task = rebuilder_result.unwrap();
+                        if let Some(build_task) = build_task {
+                            pending.push(local_set.spawn_local(async move {
+                                let _p = sem.acquire().await;
+                                futures::future::ready((node, build_task.run().await)).await
+                            }));
+                        } else {
+                            // Phony or something. Always succeeds.
+                            build_state.finish_node(&graph, node, true);
                         }
                     } else {
-                        // This will update ready and finished, so we will have made progress.
+                        // No task, so this is a source and we are done.
                         build_state.finish_node(&graph, node, true);
                     }
+
+                    // One of N things happened.
+                    // We clearly had capacity, and we were able to find a ready task.
+                    // This means we "made progress", either enqueuing the task or
+                    // immediately marking it as done. So try to do more queueing.
+                    continue;
                 }
-                Ok(())
-            })
-            .map_err(|_| BuildError::CommandPoolPanic)
-            .and_then(|r| r)
+
+                let (finished, _, left) = futures::future::select_all(pending).await;
+                pending = left;
+
+                let (node, result) = finished.unwrap();
+                // Hmm... need a way to convey result to the outside world later, but keep going with
+                // other tasks. In addition, don't want to pretend something is wrong with the
+                // queue itself.
+                if let Err(e) = result {
+                    // This will update ready and finished, so we will have made progress.
+                    build_state.finish_node(&graph, node, false);
+                    eprintln!("{}", e);
+                    if let CommandTaskError::CommandFailed(output) = e {
+                        eprintln!("{}", String::from_utf8(output.stderr).unwrap());
+                    }
+                } else {
+                    // This will update ready and finished, so we will have made progress.
+                    build_state.finish_node(&graph, node, true);
+                }
+            }
+            assert!(pending.is_empty());
+            Ok(())
+        })
     }
 }
 
@@ -299,7 +273,7 @@ where
 {
     fn schedule(
         &self,
-        _rebuilder: CompatibleRebuilder<State>,
+        _rebuilder: CompatibleRebuilder,
         _state: State,
         _tasks: &Tasks,
         _start: Vec<Key>,
@@ -309,7 +283,7 @@ where
 
     fn schedule_externals(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
+        rebuilder: CompatibleRebuilder,
         state: State,
         tasks: &Tasks,
     ) -> Result<(), BuildError> {
@@ -319,7 +293,7 @@ where
 
 pub fn build_externals<K, V, State>(
     scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
-    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
+    rebuilder: impl Rebuilder<K, V, RebuilderError>,
     tasks: &Tasks,
     state: State,
 ) -> Result<(), BuildError>
