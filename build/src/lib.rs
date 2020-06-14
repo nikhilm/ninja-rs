@@ -24,7 +24,7 @@ use task::{CommandTaskError, CommandTaskResult};
 // This genericity is getting very wonky.
 type TaskResult = CommandTaskResult;
 
-type CompatibleRebuilder<'a> = &'a (dyn Rebuilder<Key, TaskResult, RebuilderError>);
+type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State, RebuilderError>);
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
@@ -174,7 +174,7 @@ where
 
     fn schedule_internal(
         &self,
-        rebuilder: CompatibleRebuilder,
+        rebuilder: CompatibleRebuilder<State>,
         state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
@@ -204,11 +204,8 @@ where
             .unwrap();
 
         let mut pending = Vec::new();
-        // Need to leak this to ensure it stays alive for the lifetime of async tasks.
-        // Even though in our setup we can guarantee they will finish before block_on does, still
-        // need to figure out how to make the tokio APIs play with that. May just have to wait for
-        // Structured Concurrency.
-        let sem: &'static Semaphore = Box::leak(Box::new(Semaphore::new(self.parallelism)));
+        let sem= Semaphore::new(self.parallelism);
+        let state_ref = &state;
         local_set.block_on(&mut runtime, async {
             while !build_state.done() {
                 if let Some(node) = build_state.next_ready() {
@@ -221,9 +218,10 @@ where
                         }
                         let build_task = rebuilder_result.unwrap();
                         if let Some(build_task) = build_task {
-                            pending.push(local_set.spawn_local(async move {
+                            let sem = &sem;
+                            pending.push(Box::pin(async move {
                                 let _p = sem.acquire().await;
-                                futures::future::ready((node, build_task.run().await)).await
+                                futures::future::ready((node, build_task.run(state_ref).await)).await
                             }));
                         } else {
                             // Phony or something. Always succeeds.
@@ -244,7 +242,7 @@ where
                 let (finished, _, left) = futures::future::select_all(pending).await;
                 pending = left;
 
-                let (node, result) = finished.unwrap();
+                let (node, result) = finished;
                 // Hmm... need a way to convey result to the outside world later, but keep going with
                 // other tasks. In addition, don't want to pretend something is wrong with the
                 // queue itself.
@@ -273,7 +271,7 @@ where
 {
     fn schedule(
         &self,
-        _rebuilder: CompatibleRebuilder,
+        _rebuilder: CompatibleRebuilder<State>,
         _state: State,
         _tasks: &Tasks,
         _start: Vec<Key>,
@@ -283,7 +281,7 @@ where
 
     fn schedule_externals(
         &self,
-        rebuilder: CompatibleRebuilder,
+        rebuilder: CompatibleRebuilder<State>,
         state: State,
         tasks: &Tasks,
     ) -> Result<(), BuildError> {
@@ -293,7 +291,7 @@ where
 
 pub fn build_externals<K, V, State>(
     scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
-    rebuilder: impl Rebuilder<K, V, RebuilderError>,
+    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
     tasks: &Tasks,
     state: State,
 ) -> Result<(), BuildError>

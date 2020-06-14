@@ -9,10 +9,6 @@ use crate::TaskResult;
 
 use async_trait::async_trait;
 
-pub trait ParallelTopoTask: BuildTask<TaskResult>
-{
-}
-
 #[derive(Error, Debug)]
 pub enum CommandTaskError {
     #[error("{0}")]
@@ -48,8 +44,8 @@ impl CommandTask {
 }
 
 #[async_trait(?Send)]
-impl BuildTask<TaskResult> for CommandTask {
-    async fn run(&self) -> TaskResult {
+impl<State> BuildTask<State, TaskResult> for CommandTask {
+    async fn run(&self, state: &State) -> TaskResult {
             self.run_command().await
     }
 
