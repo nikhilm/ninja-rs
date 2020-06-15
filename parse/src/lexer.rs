@@ -34,7 +34,7 @@ impl Position {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Token<'a> {
+pub enum Lexeme<'a> {
     Build,
     Colon,
     Default,
@@ -56,39 +56,39 @@ pub enum Token<'a> {
     Subninja,
 }
 
-impl<'a> Display for Token<'a> {
+impl<'a> Display for Lexeme<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
             "{}",
             match *self {
-                Token::Build => "build",
-                Token::Colon => ":",
-                Token::Default => "default",
-                Token::Escape(_) => "escape",
-                Token::Equals => "=",
-                Token::Identifier(_) => "identifier",
-                Token::Illegal(_) => "illegal",
-                Token::Comment(_) => "comment",
-                Token::Include => "include",
-                Token::Indent => "indent",
-                Token::Literal(_) => "literal",
-                Token::Newline => "newline",
-                Token::Pipe => "|",
-                Token::Pipe2 => "||",
-                Token::Pool => "pool",
-                Token::Rule => "rule",
-                Token::Subninja => "subninja",
+                Lexeme::Build => "build",
+                Lexeme::Colon => ":",
+                Lexeme::Default => "default",
+                Lexeme::Escape(_) => "escape",
+                Lexeme::Equals => "=",
+                Lexeme::Identifier(_) => "identifier",
+                Lexeme::Illegal(_) => "illegal",
+                Lexeme::Comment(_) => "comment",
+                Lexeme::Include => "include",
+                Lexeme::Indent => "indent",
+                Lexeme::Literal(_) => "literal",
+                Lexeme::Newline => "newline",
+                Lexeme::Pipe => "|",
+                Lexeme::Pipe2 => "||",
+                Lexeme::Pool => "pool",
+                Lexeme::Rule => "rule",
+                Lexeme::Subninja => "subninja",
             }
         )
     }
 }
 
-impl<'a> Token<'a> {
+impl<'a> Lexeme<'a> {
     #[cfg(test)]
     pub fn is_identifier(&self) -> bool {
         match *self {
-            Token::Identifier(_) => true,
+            Lexeme::Identifier(_) => true,
             _ => false,
         }
     }
@@ -96,7 +96,7 @@ impl<'a> Token<'a> {
     #[cfg(test)]
     pub fn is_literal(&self) -> bool {
         match *self {
-            Token::Literal(_) => true,
+            Lexeme::Literal(_) => true,
             _ => false,
         }
     }
@@ -104,14 +104,14 @@ impl<'a> Token<'a> {
     #[cfg(test)]
     pub fn is_escape(&self) -> bool {
         match *self {
-            Token::Escape(_) => true,
+            Lexeme::Escape(_) => true,
             _ => false,
         }
     }
 
     pub fn value(&self) -> &'a [u8] {
         match *self {
-            Token::Comment(v) | Token::Identifier(v) | Token::Literal(v) => v,
+            Lexeme::Comment(v) | Lexeme::Identifier(v) | Lexeme::Literal(v) => v,
             _ => panic!("Incorrect token type"),
         }
     }
@@ -180,7 +180,7 @@ impl<'a> Lexer<'a> {
         ch.is_ascii_alphanumeric() || ch == b'_'
     }
 
-    fn read_identifier(&mut self, pos: usize) -> Token<'a> {
+    fn read_identifier(&mut self, pos: usize) -> Lexeme<'a> {
         assert!(pos < self.data.len());
         // The Ninja manual doesn't really define what an identifier is. Since we need to handle
         // paths, we keep going until whitespace.
@@ -191,30 +191,30 @@ impl<'a> Lexer<'a> {
             span_end += 1;
             self.advance();
         }
-        Token::Identifier(&self.data[span_start..span_end])
+        Lexeme::Identifier(&self.data[span_start..span_end])
     }
 
-    fn lookup_keyword(&mut self, ident: Token<'a>) -> Token<'a> {
+    fn lookup_keyword(&mut self, ident: Lexeme<'a>) -> Lexeme<'a> {
         match ident {
-            Token::Identifier(slice) => match slice {
+            Lexeme::Identifier(slice) => match slice {
                 // Know a better way than this? as_bytes() is not allowed here.
                 [98, 117, 105, 108, 100] => {
                     self.lexer_mode = LexerMode::PathMode;
-                    Token::Build
+                    Lexeme::Build
                 }
                 [100, 101, 102, 97, 117, 108, 116] => {
                     self.lexer_mode = LexerMode::PathMode;
-                    Token::Default
+                    Lexeme::Default
                 }
                 [105, 110, 99, 108, 117, 100, 101] => {
                     self.lexer_mode = LexerMode::PathMode;
-                    Token::Include
+                    Lexeme::Include
                 }
-                [112, 111, 111, 108] => Token::Pool,
-                [114, 117, 108, 101] => Token::Rule,
+                [112, 111, 111, 108] => Lexeme::Pool,
+                [114, 117, 108, 101] => Lexeme::Rule,
                 [115, 117, 98, 110, 105, 110, 106, 97] => {
                     self.lexer_mode = LexerMode::PathMode;
-                    Token::Subninja
+                    Lexeme::Subninja
                 }
                 _ => ident,
             },
@@ -304,7 +304,7 @@ impl<'a> Lexer<'a> {
         &self.data[start..end]
     }
 
-    fn read_comment(&mut self) -> Token<'a> {
+    fn read_comment(&mut self) -> Lexeme<'a> {
         // TODO: Handle \r\n
         let start = self.offset - 1; // Includes the '#' in the comment.
         let mut end = self.offset;
@@ -312,14 +312,14 @@ impl<'a> Lexer<'a> {
             end += 1;
             self.advance();
         }
-        Token::Comment(&self.data[start..end])
+        Lexeme::Comment(&self.data[start..end])
     }
 
     /*
      * Ninja lexing is context-sensitive. Sometimes we are reading keywords, sometimes identifiers,
      * sometimes paths and sometimes strings that can have escape sequences and '$'.
      */
-    fn read_literal_or_ident(&mut self, pos: usize) -> Option<Token<'a>> {
+    fn read_literal_or_ident(&mut self, pos: usize) -> Option<Lexeme<'a>> {
         assert!(pos < self.data.len());
         let ch = self.data[pos];
         match &self.lexer_mode {
@@ -343,7 +343,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_path(&mut self, pos: usize) -> Token<'a> {
+    fn read_path(&mut self, pos: usize) -> Lexeme<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
@@ -383,10 +383,10 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Token::Literal(&self.data[start..end])
+        Lexeme::Literal(&self.data[start..end])
     }
 
-    fn read_literal(&mut self, pos: usize) -> Token<'a> {
+    fn read_literal(&mut self, pos: usize) -> Lexeme<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
@@ -409,7 +409,7 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Token::Literal(&self.data[start..end])
+        Lexeme::Literal(&self.data[start..end])
     }
 }
 
@@ -426,7 +426,7 @@ impl<'a> Debug for Lexer<'a> {
     }
 }
 
-type TokenPos<'a> = (Token<'a>, Pos);
+type TokenPos<'a> = (Lexeme<'a>, Pos);
 
 impl<'a> Iterator for Lexer<'a> {
     type Item = TokenPos<'a>;
@@ -467,7 +467,7 @@ impl<'a> Iterator for Lexer<'a> {
                 let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos.0;
                 self.skip_horizontal_whitespace();
                 if is_indent {
-                    return Some((Token::Indent, pos));
+                    return Some((Lexeme::Indent, pos));
                 } else {
                     continue;
                 }
@@ -482,23 +482,23 @@ impl<'a> Iterator for Lexer<'a> {
                 b'\n' => {
                     self.record_line();
                     self.lexer_mode = LexerMode::Default;
-                    Some((Token::Newline, pos))
+                    Some((Lexeme::Newline, pos))
                 }
                 b'=' => {
                     self.lexer_mode = LexerMode::ValueMode;
-                    Some((Token::Equals, pos))
+                    Some((Lexeme::Equals, pos))
                 }
-                b':' => Some((Token::Colon, pos)),
+                b':' => Some((Lexeme::Colon, pos)),
                 b'|' => {
                     if let Some(c) = next {
                         if c == b'|' {
                             self.advance();
-                            Some((Token::Pipe2, pos))
+                            Some((Lexeme::Pipe2, pos))
                         } else {
-                            Some((Token::Pipe, pos))
+                            Some((Lexeme::Pipe, pos))
                         }
                     } else {
-                        Some((Token::Pipe, pos))
+                        Some((Lexeme::Pipe, pos))
                     }
                 }
                 b'$' => todo!(),
@@ -511,7 +511,7 @@ impl<'a> Iterator for Lexer<'a> {
                     .or_else(|| {
                         let err = format!("Unexpected character: {}", ch as char);
                         self.error(pos, &err);
-                        Some((Token::Illegal(ch), pos))
+                        Some((Lexeme::Illegal(ch), pos))
                     }),
             };
         }
@@ -520,12 +520,12 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::{Lexer, Pos, Position, Token};
+    use super::{Lexeme, Lexer, Pos, Position};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
-    fn parse_and_slice(input: &str) -> Vec<Token> {
+    fn parse_and_slice(input: &str) -> Vec<Lexeme> {
         let lexer = Lexer::new(input.as_bytes(), None);
-        lexer.map(|(token, _pos)| token).collect::<Vec<Token>>()
+        lexer.map(|(token, _pos)| token).collect::<Vec<Lexeme>>()
     }
 
     fn readable_byte_compare(actual: &[u8], expected: &str) {
@@ -538,30 +538,30 @@ mod test {
         }
     }
 
-    fn check_identifier(token: &Token, expected: &str) {
+    fn check_identifier(token: &Lexeme, expected: &str) {
         assert!(token.is_identifier());
         readable_byte_compare(token.value(), expected);
     }
 
-    fn check_path(token: &Token, expected: &str) {
+    fn check_path(token: &Lexeme, expected: &str) {
         assert!(token.is_literal());
         readable_byte_compare(token.value(), expected);
     }
 
-    fn check_literal(token: &Token, expected: &str) {
+    fn check_literal(token: &Lexeme, expected: &str) {
         assert!(token.is_literal());
         readable_byte_compare(token.value(), expected);
     }
 
     #[test]
     fn test_simple_colon() {
-        assert_eq!(&parse_and_slice(":"), &[Token::Colon]);
+        assert_eq!(&parse_and_slice(":"), &[Lexeme::Colon]);
     }
 
     #[test]
     fn test_pool_simple() {
         let stream = parse_and_slice("pool chairs");
-        assert_eq!(stream[0], Token::Pool);
+        assert_eq!(stream[0], Lexeme::Pool);
         check_identifier(&stream[1], "chairs");
     }
 
@@ -619,7 +619,7 @@ pool useful # another comment
             let res = parse_and_slice(input);
             for token in res {
                 match token {
-                    Token::Comment(slice) => {
+                    Lexeme::Comment(slice) => {
                         let expectation = expected_iter
                             .next()
                             .expect("Got more comments than expected");
@@ -639,15 +639,15 @@ pool useful # another comment
     #[test]
     fn test_rule_line() {
         let res = parse_and_slice("rule cc");
-        assert_eq!(res[0], Token::Rule);
+        assert_eq!(res[0], Lexeme::Rule);
         check_identifier(&res[1], "cc");
     }
 
     // The non-build kinds.
     #[test]
     fn test_simple_pathmodes() {
-        let is_keyword = |k: &Token| match *k {
-            Token::Subninja | Token::Include | Token::Default => true,
+        let is_keyword = |k: &Lexeme| match *k {
+            Lexeme::Subninja | Lexeme::Include | Lexeme::Default => true,
             _ => false,
         };
 
@@ -664,9 +664,9 @@ pool useful # another comment
     fn test_build_simple() {
         let res = parse_and_slice("build foo.o: cc foo.c");
         assert_eq!(res.len(), 5);
-        assert_eq!(res[0], Token::Build);
+        assert_eq!(res[0], Lexeme::Build);
         check_path(&res[1], "foo.o");
-        assert_eq!(res[2], Token::Colon);
+        assert_eq!(res[2], Lexeme::Colon);
         check_identifier(&res[3], "cc");
         check_path(&res[4], "foo.c");
     }
@@ -677,11 +677,11 @@ pool useful # another comment
             r#"rule cc
     command = gcc"#,
         );
-        assert_eq!(res[0], Token::Rule);
+        assert_eq!(res[0], Lexeme::Rule);
         check_identifier(&res[1], "cc");
-        assert_eq!(&res[2..4], &[Token::Newline, Token::Indent]);
+        assert_eq!(&res[2..4], &[Lexeme::Newline, Lexeme::Indent]);
         check_identifier(&res[4], "command");
-        assert_eq!(res[5], Token::Equals);
+        assert_eq!(res[5], Lexeme::Equals);
         check_literal(&res[6], "gcc");
     }
 
@@ -695,13 +695,13 @@ pool useful # another comment
         assert_eq!(
             res,
             vec![
-                Token::Newline,
-                Token::Indent,
-                Token::Colon,
-                Token::Pipe2,
-                Token::Equals,
-                Token::Newline,
-                Token::Indent
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Colon,
+                Lexeme::Pipe2,
+                Lexeme::Equals,
+                Lexeme::Newline,
+                Lexeme::Indent
             ]
         );
     }
@@ -715,23 +715,23 @@ pool useful # another comment
 build no_inputs.txt: touch
 build next: touch"#,
         );
-        assert_eq!(res[0], Token::Rule);
+        assert_eq!(res[0], Lexeme::Rule);
         assert!(res[1].is_identifier());
-        assert_eq!(res[2], Token::Newline);
-        assert_eq!(res[3], Token::Indent);
+        assert_eq!(res[2], Lexeme::Newline);
+        assert_eq!(res[3], Lexeme::Indent);
         assert!(res[4].is_identifier());
-        assert_eq!(res[5], Token::Equals);
+        assert_eq!(res[5], Lexeme::Equals);
         assert!(res[6].is_literal());
-        assert_eq!(res[7], Token::Newline);
-        assert_eq!(res[8], Token::Newline);
-        assert_eq!(res[9], Token::Build);
+        assert_eq!(res[7], Lexeme::Newline);
+        assert_eq!(res[8], Lexeme::Newline);
+        assert_eq!(res[9], Lexeme::Build);
         assert!(res[10].is_literal());
-        assert_eq!(res[11], Token::Colon);
+        assert_eq!(res[11], Lexeme::Colon);
         assert!(res[12].is_identifier());
-        assert_eq!(res[13], Token::Newline);
-        assert_eq!(res[14], Token::Build);
+        assert_eq!(res[13], Lexeme::Newline);
+        assert_eq!(res[14], Lexeme::Build);
         assert!(res[15].is_literal());
-        assert_eq!(res[16], Token::Colon);
+        assert_eq!(res[16], Lexeme::Colon);
         assert!(res[17].is_identifier());
     }
 
@@ -743,14 +743,14 @@ build next: touch"#,
             command = abcd$
 ef"#,
         );
-        assert_eq!(res[0], Token::Rule);
+        assert_eq!(res[0], Lexeme::Rule);
         assert!(res[1].is_identifier());
-        assert_eq!(res[2], Token::Newline);
-        assert_eq!(res[3], Token::Indent);
+        assert_eq!(res[2], Lexeme::Newline);
+        assert_eq!(res[3], Lexeme::Indent);
         assert!(res[4].is_identifier());
-        assert_eq!(res[5], Token::Equals);
-        assert_eq!(res[6], Token::Literal(b"abcd"));
-        assert_eq!(res[7], Token::Escape(b"\n"));
-        assert_eq!(res[8], Token::Literal(b"ef"));
+        assert_eq!(res[5], Lexeme::Equals);
+        assert_eq!(res[6], Lexeme::Literal(b"abcd"));
+        assert_eq!(res[7], Lexeme::Escape(b"\n"));
+        assert_eq!(res[8], Lexeme::Literal(b"ef"));
     }
 }
