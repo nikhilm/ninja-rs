@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
+use thiserror::Error;
 
 /// Reflects a position in the stream. This can be translated to a line+column Position using
 /// Lexer::to_position.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a token/error.
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +35,12 @@ impl Position {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum VarRefType {
+    WithoutParens,
+    WithParens,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Lexeme<'a> {
     Build,
     Colon,
@@ -43,7 +50,6 @@ pub enum Lexeme<'a> {
     // description.
     Escape(&'a [u8]),
     Identifier(&'a [u8]),
-    Illegal(u8),
     Comment(&'a [u8]),
     Include,
     Indent,
@@ -54,6 +60,7 @@ pub enum Lexeme<'a> {
     Pool,
     Rule,
     Subninja,
+    VarRef(VarRefType, &'a [u8]),
 }
 
 impl<'a> Display for Lexeme<'a> {
@@ -68,7 +75,6 @@ impl<'a> Display for Lexeme<'a> {
                 Lexeme::Escape(_) => "escape",
                 Lexeme::Equals => "=",
                 Lexeme::Identifier(_) => "identifier",
-                Lexeme::Illegal(_) => "illegal",
                 Lexeme::Comment(_) => "comment",
                 Lexeme::Include => "include",
                 Lexeme::Indent => "indent",
@@ -79,6 +85,7 @@ impl<'a> Display for Lexeme<'a> {
                 Lexeme::Pool => "pool",
                 Lexeme::Rule => "rule",
                 Lexeme::Subninja => "subninja",
+                Lexeme::VarRef(_, _) => "varref",
             }
         )
     }
@@ -101,6 +108,21 @@ enum LexerMode {
     BuildRuleMode,
 }
 
+#[derive(Error, Debug, PartialEq, Eq)]
+pub enum LexerError {
+    /// Different from the iterator returning None. This means an EOF was encountered while looking
+    /// for a valid lexeme. The iterator returns None when a valid lexeme was found and then an EOF
+    /// was encountered.
+    #[error("Unexpected EOF")]
+    UnexpectedEof(Pos),
+    #[error("Illegal character {1}")]
+    IllegalCharacter(Pos, u8),
+    #[error("Expected identifier ([a-zA-Z_-]): {1}")]
+    NotAnIdentifier(Pos, u8),
+}
+
+type LexerResult<'a> = Result<Lexeme<'a>, LexerError>;
+
 pub struct Lexer<'a> {
     data: &'a [u8],
     filename: Option<String>,
@@ -110,7 +132,6 @@ pub struct Lexer<'a> {
     // consider using `smallvec` later.
     line_offsets: Vec<usize>,
     lexer_mode: LexerMode,
-    pub error_count: u32,
 }
 
 impl<'a> Lexer<'a> {
@@ -124,7 +145,6 @@ impl<'a> Lexer<'a> {
             next_offset: 1,
             line_offsets: vec![0],
             lexer_mode: LexerMode::Default,
-            error_count: 0,
         }
     }
 
@@ -142,10 +162,6 @@ impl<'a> Lexer<'a> {
     }
     */
 
-    fn error(&mut self, _pos: Pos, _reason: &str) {
-        self.error_count += 1;
-    }
-
     fn skip_horizontal_whitespace(&mut self) {
         while self.ch == b' ' || self.ch == b'\t' {
             self.advance();
@@ -153,14 +169,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn is_permitted_identifier_char(ch: u8) -> bool {
-        ch.is_ascii_alphanumeric() || ch == b'_'
+        ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-'
     }
 
     fn read_identifier(&mut self, pos: usize) -> Lexeme<'a> {
         assert!(pos < self.data.len());
-        // The Ninja manual doesn't really define what an identifier is. Since we need to handle
-        // paths, we keep going until whitespace.
-
         let span_start = pos;
         let mut span_end = self.offset; // We've already been advanced and this is exclusive.
         while Lexer::is_permitted_identifier_char(self.ch) {
@@ -295,7 +308,7 @@ impl<'a> Lexer<'a> {
      * Ninja lexing is context-sensitive. Sometimes we are reading keywords, sometimes identifiers,
      * sometimes paths and sometimes strings that can have escape sequences and '$'.
      */
-    fn read_literal_or_ident(&mut self, pos: usize) -> Option<Lexeme<'a>> {
+    fn read_literal_or_ident(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         let ch = self.data[pos];
         match &self.lexer_mode {
@@ -305,21 +318,20 @@ impl<'a> Lexer<'a> {
                     if self.lexer_mode == LexerMode::BuildRuleMode {
                         self.lexer_mode = LexerMode::PathMode;
                     }
-                    Some(self.lookup_keyword(ident))
+                    Ok(self.lookup_keyword(ident))
                 } else {
-                    None
+                    Err(LexerError::NotAnIdentifier(Pos(pos), ch))
                 }
             }
             LexerMode::PathMode => {
                 // parse the next "space separated" filename, which can include escaped colons.
-                // variables are not expanded here.
-                Some(self.read_path(pos))
+                self.read_path(pos)
             }
-            LexerMode::ValueMode => Some(self.read_literal(pos)),
+            LexerMode::ValueMode => self.read_literal(pos),
         }
     }
 
-    fn read_path(&mut self, pos: usize) -> Lexeme<'a> {
+    fn read_path(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
@@ -359,10 +371,10 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Lexeme::Literal(&self.data[start..end])
+        Ok(Lexeme::Literal(&self.data[start..end]))
     }
 
-    fn read_literal(&mut self, pos: usize) -> Lexeme<'a> {
+    fn read_literal(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
@@ -385,7 +397,51 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Lexeme::Literal(&self.data[start..end])
+        Ok(Lexeme::Literal(&self.data[start..end]))
+    }
+
+    fn read_escape(&mut self, pos: usize) -> Result<Lexeme<'a>, LexerError> {
+        assert!(pos < self.data.len());
+        assert_eq!(self.data[pos], b'$');
+
+        // Advance one and start consuming.
+        if self.advance().is_none() {
+            return Err(LexerError::UnexpectedEof(Pos(pos)));
+        }
+
+        let start = self.offset;
+        let mut end = self.offset + 1;
+
+        match self.ch {
+            b' ' | b'\n' | b'\r' | b'$' | b':' => Ok(Lexeme::Escape(&self.data[start..end])),
+            b'{' => {
+                let pos = self.offset;
+                if self.advance().is_none() {
+                    return Err(LexerError::UnexpectedEof(Pos(pos)));
+                }
+                // This and the next if is kinda ugly.
+                if !Lexer::is_permitted_identifier_char(self.ch) {
+                    return Err(LexerError::NotAnIdentifier(Pos(self.offset), self.ch));
+                }
+
+                let pos = self.offset;
+                self.advance();
+                let ident = self.read_identifier(pos);
+
+                if self.ch != b'}' {
+                    panic!("expected }");
+                }
+
+                Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
+            }
+            _ if Lexer::is_permitted_identifier_char(self.ch) => {
+                let pos = self.offset;
+                self.advance();
+                let ident = self.read_identifier(pos);
+                Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
+            }
+            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), self.ch)),
+        }
     }
 }
 
@@ -397,7 +453,6 @@ impl<'a> Debug for Lexer<'a> {
             .field("offset", &self.offset)
             .field("next_offset", &self.next_offset)
             .field("lexer_mode", &self.lexer_mode)
-            .field("error_count", &self.error_count)
             .finish()
     }
 }
@@ -405,7 +460,7 @@ impl<'a> Debug for Lexer<'a> {
 type TokenPos<'a> = (Lexeme<'a>, Pos);
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = TokenPos<'a>;
+    type Item = Result<TokenPos<'a>, LexerError>;
 
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
@@ -443,7 +498,7 @@ impl<'a> Iterator for Lexer<'a> {
                 let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos.0;
                 self.skip_horizontal_whitespace();
                 if is_indent {
-                    return Some((Lexeme::Indent, pos));
+                    return Some(Ok((Lexeme::Indent, pos)));
                 } else {
                     continue;
                 }
@@ -458,37 +513,30 @@ impl<'a> Iterator for Lexer<'a> {
                 b'\n' => {
                     self.record_line();
                     self.lexer_mode = LexerMode::Default;
-                    Some((Lexeme::Newline, pos))
+                    Some(Ok((Lexeme::Newline, pos)))
                 }
                 b'=' => {
                     self.lexer_mode = LexerMode::ValueMode;
-                    Some((Lexeme::Equals, pos))
+                    Some(Ok((Lexeme::Equals, pos)))
                 }
-                b':' => Some((Lexeme::Colon, pos)),
+                b':' => Some(Ok((Lexeme::Colon, pos))),
                 b'|' => {
                     if let Some(c) = next {
                         if c == b'|' {
                             self.advance();
-                            Some((Lexeme::Pipe2, pos))
+                            Some(Ok((Lexeme::Pipe2, pos)))
                         } else {
-                            Some((Lexeme::Pipe, pos))
+                            Some(Ok((Lexeme::Pipe, pos)))
                         }
                     } else {
-                        Some((Lexeme::Pipe, pos))
+                        Some(Ok((Lexeme::Pipe, pos)))
                     }
                 }
-                b'$' => todo!(),
+                b'$' => Some(self.read_escape(pos.0).map(|x| (x, pos))),
                 // Ninja only allows comments on newlines, so the other modes treat this as a
                 // literal. we may want a warning or something.
-                b'#' => Some((self.read_comment(), pos)),
-                _ => self
-                    .read_literal_or_ident(pos.0)
-                    .map(|x| (x, pos))
-                    .or_else(|| {
-                        let err = format!("Unexpected character: {}", ch as char);
-                        self.error(pos, &err);
-                        Some((Lexeme::Illegal(ch), pos))
-                    }),
+                b'#' => Some(Ok((self.read_comment(), pos))),
+                _ => Some(self.read_literal_or_ident(pos.0).map(|x| (x, pos))),
             };
         }
     }
@@ -496,31 +544,43 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::{Lexeme, Lexer, Pos, Position};
+    use super::{Lexeme, Lexer, LexerError, Pos, Position};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
-    fn parse_and_slice(input: &str) -> Vec<Lexeme> {
+    fn parse_and_slice(input: &str) -> Vec<Result<Lexeme, LexerError>> {
         let lexer = Lexer::new(input.as_bytes(), None);
-        lexer.map(|(token, _pos)| token).collect::<Vec<Lexeme>>()
+        lexer.map(|v| v.map(|(token, _pos)| token)).collect()
+    }
+
+    fn parse_and_slice_no_error(input: &str) -> Vec<Lexeme> {
+        parse_and_slice(input)
+            .into_iter()
+            .map(|v| v.expect("valid lexeme"))
+            .collect()
     }
 
     #[test]
     fn test_simple_colon() {
-        assert_eq!(&parse_and_slice(":"), &[Lexeme::Colon]);
+        assert_eq!(&parse_and_slice_no_error(":"), &[Lexeme::Colon]);
     }
 
     #[test]
     fn test_pool_simple() {
-        let stream = parse_and_slice("pool chairs");
+        let stream = parse_and_slice_no_error("pool chairs");
         assert_eq!(stream, &[Lexeme::Pool, Lexeme::Identifier(b"chairs")]);
     }
 
     #[test]
     fn test_error_triggered() {
         // This interface is not very ergonomic...
-        let mut lexer = Lexer::new("pool )".as_bytes(), None);
-        for _token in &mut lexer {}
-        assert_eq!(lexer.error_count, 1);
+        let lexemes = parse_and_slice("pool )");
+        assert_eq!(
+            lexemes,
+            &[
+                Ok(Lexeme::Pool),
+                Err(LexerError::NotAnIdentifier(Pos(5), 41))
+            ]
+        );
     }
 
     #[test]
@@ -566,7 +626,7 @@ pool useful # another comment
 
         for (input, expected_comments) in table {
             let mut expected_iter = expected_comments.iter();
-            let res = parse_and_slice(input);
+            let res = parse_and_slice_no_error(input);
             for token in res {
                 match token {
                     Lexeme::Comment(slice) => {
@@ -588,7 +648,7 @@ pool useful # another comment
 
     #[test]
     fn test_rule_line() {
-        let res = parse_and_slice("rule cc");
+        let res = parse_and_slice_no_error("rule cc");
         assert_eq!(res, &[Lexeme::Rule, Lexeme::Identifier(b"cc")]);
     }
 
@@ -602,7 +662,7 @@ pool useful # another comment
 
         let table = &["subninja apath", "include apath", "default apath"];
         for test in table {
-            let res = parse_and_slice(test);
+            let res = parse_and_slice_no_error(test);
             assert_eq!(res.len(), 2);
             assert!(is_keyword(&res[0]));
             assert_eq!(res[1], Lexeme::Literal(b"apath"));
@@ -611,7 +671,7 @@ pool useful # another comment
 
     #[test]
     fn test_build_simple() {
-        let res = parse_and_slice("build foo.o: cc foo.c");
+        let res = parse_and_slice_no_error("build foo.o: cc foo.c");
         assert_eq!(
             res,
             &[
@@ -626,7 +686,7 @@ pool useful # another comment
 
     #[test]
     fn test_simple_rule() {
-        let res = parse_and_slice(
+        let res = parse_and_slice_no_error(
             r#"rule cc
     command = gcc"#,
         );
@@ -646,7 +706,7 @@ pool useful # another comment
 
     #[test]
     fn test_chars() {
-        let res = parse_and_slice(
+        let res = parse_and_slice_no_error(
             r#"
                 :||=
                 "#,
@@ -667,7 +727,7 @@ pool useful # another comment
 
     #[test]
     fn test_newline_when_path_expected() {
-        let res = parse_and_slice(
+        let res = parse_and_slice_no_error(
             r#"rule touch
     command = touch no_inputs.txt
 
@@ -700,9 +760,17 @@ build next: touch"#,
     }
 
     #[test]
-    #[should_panic]
-    fn test_special_literal() {
-        let res = parse_and_slice(
+    fn test_escape_in_illegal_pos() {
+        let res = parse_and_slice_no_error(
+            r#"rule c$ c
+            command = touch"#,
+        );
+        todo!();
+    }
+
+    #[test]
+    fn test_escape_literal() {
+        let res = parse_and_slice_no_error(
             r#"rule cc
             command = abcd$
 ef"#,
@@ -721,5 +789,30 @@ ef"#,
                 Lexeme::Literal(b"ef"),
             ]
         );
+    }
+
+    #[test]
+    fn test_escape_eof() {
+        let input = r#"rule cc
+            command = abcd$"#;
+        let res = parse_and_slice(input);
+        assert_eq!(
+            res,
+            &[
+                Ok(Lexeme::Rule),
+                Ok(Lexeme::Identifier(b"cc")),
+                Ok(Lexeme::Newline),
+                Ok(Lexeme::Indent),
+                Ok(Lexeme::Identifier(b"command")),
+                Ok(Lexeme::Equals),
+                Ok(Lexeme::Literal(b"abcd")),
+                Err(LexerError::UnexpectedEof(Pos(input.len() - 1))),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_escape_and_lex_modes() {
+        todo!();
     }
 }

@@ -8,7 +8,7 @@ pub mod ast;
 mod lexer;
 
 use ast::*;
-use lexer::{Lexeme, Lexer, Position};
+use lexer::{Lexeme, Lexer, LexerError, Position};
 
 #[derive(Debug, Error)]
 pub struct ParseError {
@@ -33,6 +33,18 @@ impl ParseError {
     fn eof(msg: &'static str, lexer: &Lexer) -> ParseError {
         let pos = lexer.last_pos();
         ParseError::new(msg, pos, lexer)
+    }
+
+    fn from_lexer_error(err: LexerError, lexer: &Lexer) -> ParseError {
+        match err {
+            LexerError::UnexpectedEof(pos) => ParseError::new("Unexpected EOF", pos, lexer),
+            LexerError::IllegalCharacter(pos, ch) => {
+                ParseError::new(format!("Illegal character {}", ch), pos, lexer)
+            }
+            LexerError::NotAnIdentifier(pos, ch) => {
+                ParseError::new(format!("Not an identifier {}", ch), pos, lexer)
+            }
+        }
     }
 }
 
@@ -62,74 +74,80 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_identifier(&mut self) -> Result<Lexeme<'a>, ParseError> {
+    fn handle_eof(&mut self) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
         self.lexer
             .next()
             .ok_or_else(|| ParseError::eof("Expected identifier, got EOF", &self.lexer))
-            .and_then(|(token, pos)| match token {
-                Lexeme::Identifier(_) => Ok(token),
-                _ => Err(ParseError::new(
-                    format!("Expected identifier, got {}", token),
-                    pos,
-                    &self.lexer,
-                )),
-            })
+    }
+
+    fn expect_identifier(&mut self) -> Result<Lexeme<'a>, ParseError> {
+        self.handle_eof().and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Identifier(_) => Ok(token),
+                    _ => Err(ParseError::new(
+                        format!("Expected identifier, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn expect_value(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.lexer
-            .next()
-            .ok_or_else(|| ParseError::eof("Expected literal, got EOF", &self.lexer))
-            .and_then(|(token, pos)| match token {
-                Lexeme::Literal(_) => Ok(token),
-                _ => Err(ParseError::new(
-                    format!("Expected literal, got {}", token),
-                    pos,
-                    &self.lexer,
-                )),
-            })
+        self.handle_eof().and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Literal(_) => Ok(token),
+                    _ => Err(ParseError::new(
+                        format!("Expected literal, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {
-        self.lexer
-            .next()
-            .ok_or_else(|| ParseError::eof("Expected indent, got EOF", &self.lexer))
-            .and_then(|(token, pos)| match token {
-                Lexeme::Indent => Ok(()),
-                _ => Err(ParseError::new(
-                    format!("Expected indent, got {}", token),
-                    pos,
-                    &self.lexer,
-                )),
-            })
+        self.handle_eof().and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Indent => Ok(()),
+                    _ => Err(ParseError::new(
+                        format!("Expected indent, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn discard_newline(&mut self) -> Result<(), ParseError> {
-        self.lexer
-            .next()
-            .ok_or_else(|| ParseError::eof("Expected newline, got EOF", &self.lexer))
-            .and_then(|(token, pos)| match token {
-                Lexeme::Newline => Ok(()),
-                _ => Err(ParseError::new(
-                    format!("Expected newline, got {}", token),
-                    pos,
-                    &self.lexer,
-                )),
-            })
+        self.handle_eof().and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Newline => Ok(()),
+                    _ => Err(ParseError::new(
+                        format!("Expected newline, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn discard_assignment(&mut self) -> Result<(), ParseError> {
-        self.lexer
-            .next()
-            .ok_or_else(|| ParseError::eof("Expected =, got EOF", &self.lexer))
-            .and_then(|(token, pos)| match token {
-                Lexeme::Equals => Ok(()),
-                _ => Err(ParseError::new(
-                    format!("Expected =, got {}", token),
-                    pos,
-                    &self.lexer,
-                )),
-            })
+        self.handle_eof().and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Equals => Ok(()),
+                    _ => Err(ParseError::new(
+                        format!("Expected =, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn read_assignment(&mut self) -> Result<(&'a [u8], &'a [u8]), ParseError> {
@@ -171,7 +189,9 @@ impl<'a> Parser<'a> {
         let mut rule = None;
         let mut state = Read::FirstOutput;
         let mut first_line_pos = None;
-        while let Some((token, pos)) = self.lexer.next() {
+        while let Some(result) = self.lexer.next() {
+            let (token, pos) =
+                result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             if first_line_pos.is_none() {
                 first_line_pos = Some(pos);
             }
@@ -262,7 +282,9 @@ impl<'a> Parser<'a> {
             rules: Vec::new(),
             builds: Vec::new(),
         };
-        while let Some((token, _pos)) = self.lexer.next() {
+        while let Some(result) = self.lexer.next() {
+            let (token, _pos) =
+                result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             match token {
                 Lexeme::Rule => {
                     description.rules.push(self.parse_rule()?);
