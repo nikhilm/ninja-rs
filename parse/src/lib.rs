@@ -177,7 +177,7 @@ impl<'a> Parser<'a> {
             }
             match state {
                 Read::FirstOutput => match token {
-                    Token::Path(v) => {
+                    Token::Literal(v) => {
                         outputs.push(v);
                         state = Read::RemainingOutputs;
                     }
@@ -190,7 +190,7 @@ impl<'a> Parser<'a> {
                     }
                 },
                 Read::RemainingOutputs => match token {
-                    Token::Path(v) => {
+                    Token::Literal(v) => {
                         outputs.push(v);
                         state = Read::RemainingOutputs;
                     }
@@ -219,7 +219,7 @@ impl<'a> Parser<'a> {
                     }
                 },
                 Read::Inputs => match token {
-                    Token::Path(v) => {
+                    Token::Literal(v) => {
                         inputs.push(v);
                     }
                     Token::Newline => {

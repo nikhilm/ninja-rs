@@ -38,8 +38,10 @@ pub enum Token<'a> {
     Build,
     Colon,
     Default,
-    Escape,
     Equals,
+    // Keep as a separate token type for now, since we may need it when pretty-printing a
+    // description.
+    Escape(&'a [u8]),
     Identifier(&'a [u8]),
     Illegal(u8),
     Comment(&'a [u8]),
@@ -47,8 +49,6 @@ pub enum Token<'a> {
     Indent,
     Literal(&'a [u8]),
     Newline,
-    // Yes, parser knowledge leaking here.
-    Path(&'a [u8]),
     Pipe,
     Pipe2,
     Pool,
@@ -65,7 +65,7 @@ impl<'a> Display for Token<'a> {
                 Token::Build => "build",
                 Token::Colon => ":",
                 Token::Default => "default",
-                Token::Escape => "$",
+                Token::Escape(_) => "escape",
                 Token::Equals => "=",
                 Token::Identifier(_) => "identifier",
                 Token::Illegal(_) => "illegal",
@@ -74,7 +74,6 @@ impl<'a> Display for Token<'a> {
                 Token::Indent => "indent",
                 Token::Literal(_) => "literal",
                 Token::Newline => "newline",
-                Token::Path(_) => "path",
                 Token::Pipe => "|",
                 Token::Pipe2 => "||",
                 Token::Pool => "pool",
@@ -95,14 +94,6 @@ impl<'a> Token<'a> {
     }
 
     #[cfg(test)]
-    pub fn is_path(&self) -> bool {
-        match *self {
-            Token::Path(_) => true,
-            _ => false,
-        }
-    }
-
-    #[cfg(test)]
     pub fn is_literal(&self) -> bool {
         match *self {
             Token::Literal(_) => true,
@@ -110,9 +101,17 @@ impl<'a> Token<'a> {
         }
     }
 
+    #[cfg(test)]
+    pub fn is_escape(&self) -> bool {
+        match *self {
+            Token::Escape(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn value(&self) -> &'a [u8] {
         match *self {
-            Token::Comment(v) | Token::Identifier(v) | Token::Literal(v) | Token::Path(v) => v,
+            Token::Comment(v) | Token::Identifier(v) | Token::Literal(v) => v,
             _ => panic!("Incorrect token type"),
         }
     }
@@ -352,25 +351,25 @@ impl<'a> Lexer<'a> {
             // This is effectively peeking.
             // If we want to stop processing, at say ':', we will simply bail and the next call to
             // next() will proceed from there.
-            match self.ch as char {
-                '$' => {
+            match self.ch {
+                b'$' => {
                     todo!("escape sequences are not implemented!");
                 }
-                ' ' => {
-                    // Done with this path.
-                    break;
-                }
-                '|' => {
-                    todo!("Implicit outs/deps not supported!");
-                }
-                '\n' => {
+                b'\n' => {
                     // Done with this path. also switch modes.
                     self.lexer_mode = LexerMode::Default;
                     break;
                 }
+                b' ' => {
+                    // Done with this path.
+                    break;
+                }
+                b'|' => {
+                    todo!("Implicit outs/deps not supported!");
+                }
                 // Only expect to encounter this in `build` declarations.
                 // The parser will take care if that does not happen.
-                ':' => {
+                b':' => {
                     // Separate from default because after reading the rule, we need to go back
                     // to PathMode.
                     self.lexer_mode = LexerMode::BuildRuleMode;
@@ -384,7 +383,7 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Token::Path(&self.data[start..end])
+        Token::Literal(&self.data[start..end])
     }
 
     fn read_literal(&mut self, pos: usize) -> Token<'a> {
@@ -392,11 +391,12 @@ impl<'a> Lexer<'a> {
         let start = pos;
         let mut end = self.offset;
         loop {
-            match self.ch as char {
-                '$' => {
-                    todo!("escape sequences are not implemented!");
+            match self.ch {
+                b'$' => {
+                    // Don't switch modes, since we don't know how to interpret this yet.
+                    break;
                 }
-                '\n' => {
+                b'\n' => {
                     // Done with this literal. also switch modes.
                     self.lexer_mode = LexerMode::Default;
                     break;
@@ -501,7 +501,7 @@ impl<'a> Iterator for Lexer<'a> {
                         Some((Token::Pipe, pos))
                     }
                 }
-                b'$' => Some((Token::Escape, pos)),
+                b'$' => todo!(),
                 // Ninja only allows comments on newlines, so the other modes treat this as a
                 // literal. we may want a warning or something.
                 b'#' => Some((self.read_comment(), pos)),
@@ -544,7 +544,7 @@ mod test {
     }
 
     fn check_path(token: &Token, expected: &str) {
-        assert!(token.is_path());
+        assert!(token.is_literal());
         readable_byte_compare(token.value(), expected);
     }
 
@@ -725,13 +725,32 @@ build next: touch"#,
         assert_eq!(res[7], Token::Newline);
         assert_eq!(res[8], Token::Newline);
         assert_eq!(res[9], Token::Build);
-        assert!(res[10].is_path());
+        assert!(res[10].is_literal());
         assert_eq!(res[11], Token::Colon);
         assert!(res[12].is_identifier());
         assert_eq!(res[13], Token::Newline);
         assert_eq!(res[14], Token::Build);
-        assert!(res[15].is_path());
+        assert!(res[15].is_literal());
         assert_eq!(res[16], Token::Colon);
         assert!(res[17].is_identifier());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_special_literal() {
+        let res = parse_and_slice(
+            r#"rule cc
+            command = abcd$
+ef"#,
+        );
+        assert_eq!(res[0], Token::Rule);
+        assert!(res[1].is_identifier());
+        assert_eq!(res[2], Token::Newline);
+        assert_eq!(res[3], Token::Indent);
+        assert!(res[4].is_identifier());
+        assert_eq!(res[5], Token::Equals);
+        assert_eq!(res[6], Token::Literal(b"abcd"));
+        assert_eq!(res[7], Token::Escape(b"\n"));
+        assert_eq!(res[8], Token::Literal(b"ef"));
     }
 }
