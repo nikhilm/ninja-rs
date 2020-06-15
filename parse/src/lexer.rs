@@ -85,30 +85,6 @@ impl<'a> Display for Lexeme<'a> {
 }
 
 impl<'a> Lexeme<'a> {
-    #[cfg(test)]
-    pub fn is_identifier(&self) -> bool {
-        match *self {
-            Lexeme::Identifier(_) => true,
-            _ => false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn is_literal(&self) -> bool {
-        match *self {
-            Lexeme::Literal(_) => true,
-            _ => false,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn is_escape(&self) -> bool {
-        match *self {
-            Lexeme::Escape(_) => true,
-            _ => false,
-        }
-    }
-
     pub fn value(&self) -> &'a [u8] {
         match *self {
             Lexeme::Comment(v) | Lexeme::Identifier(v) | Lexeme::Literal(v) => v,
@@ -528,31 +504,6 @@ mod test {
         lexer.map(|(token, _pos)| token).collect::<Vec<Lexeme>>()
     }
 
-    fn readable_byte_compare(actual: &[u8], expected: &str) {
-        if actual != expected.as_bytes() {
-            panic!(
-                "Expected: {}, got {}",
-                expected,
-                std::str::from_utf8(actual).unwrap()
-            );
-        }
-    }
-
-    fn check_identifier(token: &Lexeme, expected: &str) {
-        assert!(token.is_identifier());
-        readable_byte_compare(token.value(), expected);
-    }
-
-    fn check_path(token: &Lexeme, expected: &str) {
-        assert!(token.is_literal());
-        readable_byte_compare(token.value(), expected);
-    }
-
-    fn check_literal(token: &Lexeme, expected: &str) {
-        assert!(token.is_literal());
-        readable_byte_compare(token.value(), expected);
-    }
-
     #[test]
     fn test_simple_colon() {
         assert_eq!(&parse_and_slice(":"), &[Lexeme::Colon]);
@@ -561,8 +512,7 @@ mod test {
     #[test]
     fn test_pool_simple() {
         let stream = parse_and_slice("pool chairs");
-        assert_eq!(stream[0], Lexeme::Pool);
-        check_identifier(&stream[1], "chairs");
+        assert_eq!(stream, &[Lexeme::Pool, Lexeme::Identifier(b"chairs")]);
     }
 
     #[test]
@@ -639,8 +589,7 @@ pool useful # another comment
     #[test]
     fn test_rule_line() {
         let res = parse_and_slice("rule cc");
-        assert_eq!(res[0], Lexeme::Rule);
-        check_identifier(&res[1], "cc");
+        assert_eq!(res, &[Lexeme::Rule, Lexeme::Identifier(b"cc")]);
     }
 
     // The non-build kinds.
@@ -656,19 +605,23 @@ pool useful # another comment
             let res = parse_and_slice(test);
             assert_eq!(res.len(), 2);
             assert!(is_keyword(&res[0]));
-            check_path(&res[1], "apath");
+            assert_eq!(res[1], Lexeme::Literal(b"apath"));
         }
     }
 
     #[test]
     fn test_build_simple() {
         let res = parse_and_slice("build foo.o: cc foo.c");
-        assert_eq!(res.len(), 5);
-        assert_eq!(res[0], Lexeme::Build);
-        check_path(&res[1], "foo.o");
-        assert_eq!(res[2], Lexeme::Colon);
-        check_identifier(&res[3], "cc");
-        check_path(&res[4], "foo.c");
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Build,
+                Lexeme::Literal(b"foo.o"),
+                Lexeme::Colon,
+                Lexeme::Identifier(b"cc"),
+                Lexeme::Literal(b"foo.c")
+            ]
+        );
     }
 
     #[test]
@@ -677,12 +630,18 @@ pool useful # another comment
             r#"rule cc
     command = gcc"#,
         );
-        assert_eq!(res[0], Lexeme::Rule);
-        check_identifier(&res[1], "cc");
-        assert_eq!(&res[2..4], &[Lexeme::Newline, Lexeme::Indent]);
-        check_identifier(&res[4], "command");
-        assert_eq!(res[5], Lexeme::Equals);
-        check_literal(&res[6], "gcc");
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Rule,
+                Lexeme::Identifier(b"cc"),
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Identifier(b"command"),
+                Lexeme::Equals,
+                Lexeme::Literal(b"gcc"),
+            ]
+        );
     }
 
     #[test]
@@ -694,7 +653,7 @@ pool useful # another comment
         );
         assert_eq!(
             res,
-            vec![
+            &[
                 Lexeme::Newline,
                 Lexeme::Indent,
                 Lexeme::Colon,
@@ -715,24 +674,29 @@ pool useful # another comment
 build no_inputs.txt: touch
 build next: touch"#,
         );
-        assert_eq!(res[0], Lexeme::Rule);
-        assert!(res[1].is_identifier());
-        assert_eq!(res[2], Lexeme::Newline);
-        assert_eq!(res[3], Lexeme::Indent);
-        assert!(res[4].is_identifier());
-        assert_eq!(res[5], Lexeme::Equals);
-        assert!(res[6].is_literal());
-        assert_eq!(res[7], Lexeme::Newline);
-        assert_eq!(res[8], Lexeme::Newline);
-        assert_eq!(res[9], Lexeme::Build);
-        assert!(res[10].is_literal());
-        assert_eq!(res[11], Lexeme::Colon);
-        assert!(res[12].is_identifier());
-        assert_eq!(res[13], Lexeme::Newline);
-        assert_eq!(res[14], Lexeme::Build);
-        assert!(res[15].is_literal());
-        assert_eq!(res[16], Lexeme::Colon);
-        assert!(res[17].is_identifier());
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Rule,
+                Lexeme::Identifier(b"touch"),
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Identifier(b"command"),
+                Lexeme::Equals,
+                Lexeme::Literal(b"touch no_inputs.txt"),
+                Lexeme::Newline,
+                Lexeme::Newline,
+                Lexeme::Build,
+                Lexeme::Literal(b"no_inputs.txt"),
+                Lexeme::Colon,
+                Lexeme::Identifier(b"touch"),
+                Lexeme::Newline,
+                Lexeme::Build,
+                Lexeme::Literal(b"next"),
+                Lexeme::Colon,
+                Lexeme::Identifier(b"touch"),
+            ]
+        );
     }
 
     #[test]
@@ -743,14 +707,19 @@ build next: touch"#,
             command = abcd$
 ef"#,
         );
-        assert_eq!(res[0], Lexeme::Rule);
-        assert!(res[1].is_identifier());
-        assert_eq!(res[2], Lexeme::Newline);
-        assert_eq!(res[3], Lexeme::Indent);
-        assert!(res[4].is_identifier());
-        assert_eq!(res[5], Lexeme::Equals);
-        assert_eq!(res[6], Lexeme::Literal(b"abcd"));
-        assert_eq!(res[7], Lexeme::Escape(b"\n"));
-        assert_eq!(res[8], Lexeme::Literal(b"ef"));
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Rule,
+                Lexeme::Identifier(b"cc"),
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Identifier(b"command"),
+                Lexeme::Equals,
+                Lexeme::Literal(b"abcd"),
+                Lexeme::Escape(b"\n"),
+                Lexeme::Literal(b"ef"),
+            ]
+        );
     }
 }
