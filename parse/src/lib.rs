@@ -30,7 +30,7 @@ impl ParseError {
         }
     }
 
-    fn eof(msg: &'static str, lexer: &Lexer) -> ParseError {
+    fn eof<S: Into<String>>(msg: S, lexer: &Lexer) -> ParseError {
         let pos = lexer.last_pos();
         ParseError::new(msg, pos, lexer)
     }
@@ -43,6 +43,9 @@ impl ParseError {
             }
             LexerError::NotAnIdentifier(pos, ch) => {
                 ParseError::new(format!("Not an identifier {}", ch), pos, lexer)
+            }
+            LexerError::MissingParen(pos) => {
+                ParseError::new("Expected closing parentheses '}}'", pos, lexer)
             }
         }
     }
@@ -74,14 +77,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn handle_eof(&mut self) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
+    fn handle_eof(
+        &mut self,
+        msg_type: &'static str,
+    ) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
         self.lexer
             .next()
-            .ok_or_else(|| ParseError::eof("Expected identifier, got EOF", &self.lexer))
+            .ok_or_else(|| ParseError::eof(format!("Expected {}, got EOF", msg_type), &self.lexer))
     }
 
     fn expect_identifier(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.handle_eof().and_then(|res| {
+        self.handle_eof("identifier").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Identifier(_) => Ok(token),
@@ -95,7 +101,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_value(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.handle_eof().and_then(|res| {
+        self.handle_eof("literal").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Literal(_) => Ok(token),
@@ -109,7 +115,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {
-        self.handle_eof().and_then(|res| {
+        self.handle_eof("indent").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Indent => Ok(()),
@@ -123,7 +129,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_newline(&mut self) -> Result<(), ParseError> {
-        self.handle_eof().and_then(|res| {
+        self.handle_eof("newline").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Newline => Ok(()),
@@ -137,7 +143,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_assignment(&mut self) -> Result<(), ParseError> {
-        self.handle_eof().and_then(|res| {
+        self.handle_eof("=").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Equals => Ok(()),

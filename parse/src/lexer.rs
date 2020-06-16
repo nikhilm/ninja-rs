@@ -119,6 +119,8 @@ pub enum LexerError {
     IllegalCharacter(Pos, u8),
     #[error("Expected identifier ([a-zA-Z_-]): {1}")]
     NotAnIdentifier(Pos, u8),
+    #[error("Missing closing paren '}}'")]
+    MissingParen(Pos),
 }
 
 type LexerResult<'a> = Result<Lexeme<'a>, LexerError>;
@@ -403,17 +405,12 @@ impl<'a> Lexer<'a> {
     fn read_escape(&mut self, pos: usize) -> Result<Lexeme<'a>, LexerError> {
         assert!(pos < self.data.len());
         assert_eq!(self.data[pos], b'$');
+        assert_eq!(pos + 1, self.offset);
 
-        // Advance one and start consuming.
-        if self.advance().is_none() {
-            return Err(LexerError::UnexpectedEof(Pos(pos)));
-        }
-
-        let start = self.offset;
-        let mut end = self.offset + 1;
-
-        match self.ch {
-            b' ' | b'\n' | b'\r' | b'$' | b':' => Ok(Lexeme::Escape(&self.data[start..end])),
+        let result = match self.ch {
+            b' ' | b'\n' | b'\r' | b'$' | b':' => {
+                Ok(Lexeme::Escape(&self.data[self.offset..self.offset + 1]))
+            }
             b'{' => {
                 let pos = self.offset;
                 if self.advance().is_none() {
@@ -428,8 +425,10 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 let ident = self.read_identifier(pos);
 
-                if self.ch != b'}' {
-                    panic!("expected }");
+                if self.done() {
+                    return Err(LexerError::UnexpectedEof(Pos(self.offset - 1)));
+                } else if self.ch != b'}' {
+                    return Err(LexerError::MissingParen(Pos(self.offset)));
                 }
 
                 Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
@@ -440,8 +439,12 @@ impl<'a> Lexer<'a> {
                 let ident = self.read_identifier(pos);
                 Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
             }
-            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), self.ch)),
-        }
+            0 => Err(LexerError::UnexpectedEof(Pos(pos))),
+            _ => Err(LexerError::IllegalCharacter(Pos(pos), self.ch)),
+        };
+        // Advance either way so the rest of the lexer can continue;
+        self.advance();
+        result
     }
 }
 
@@ -765,7 +768,21 @@ build next: touch"#,
             r#"rule c$ c
             command = touch"#,
         );
-        todo!();
+        // Totally allowed in the lexer. It is the parser that should complain.
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Rule,
+                Lexeme::Identifier(b"c"),
+                Lexeme::Escape(b" "),
+                Lexeme::Identifier(b"c"),
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Identifier(b"command"),
+                Lexeme::Equals,
+                Lexeme::Literal(b"touch")
+            ]
+        );
     }
 
     #[test]
@@ -789,6 +806,28 @@ ef"#,
                 Lexeme::Literal(b"ef"),
             ]
         );
+
+        let res = parse_and_slice_no_error(
+            r#"rule cc
+            command = abcd$
+
+rule"#,
+        );
+        assert_eq!(
+            res,
+            &[
+                Lexeme::Rule,
+                Lexeme::Identifier(b"cc"),
+                Lexeme::Newline,
+                Lexeme::Indent,
+                Lexeme::Identifier(b"command"),
+                Lexeme::Equals,
+                Lexeme::Literal(b"abcd"),
+                Lexeme::Escape(b"\n"),
+                Lexeme::Newline,
+                Lexeme::Rule,
+            ]
+        );
     }
 
     #[test]
@@ -809,10 +848,35 @@ ef"#,
                 Err(LexerError::UnexpectedEof(Pos(input.len() - 1))),
             ]
         );
+
+        let input = r#"rule cc
+            command = abcd${abcd"#;
+        let res = parse_and_slice(input);
+        assert_eq!(
+            res,
+            &[
+                Ok(Lexeme::Rule),
+                Ok(Lexeme::Identifier(b"cc")),
+                Ok(Lexeme::Newline),
+                Ok(Lexeme::Indent),
+                Ok(Lexeme::Identifier(b"command")),
+                Ok(Lexeme::Equals),
+                Ok(Lexeme::Literal(b"abcd")),
+                Err(LexerError::UnexpectedEof(Pos(input.len() - 1))),
+            ]
+        );
     }
 
     #[test]
+    #[should_panic]
+    fn test_escape_varrefs() {
+        todo!();
+    }
+
+    #[test]
+    #[should_panic]
     fn test_escape_and_lex_modes() {
+        // TODO: Make sure path mode is continued/reset based on newlines/colon.
         todo!();
     }
 }
