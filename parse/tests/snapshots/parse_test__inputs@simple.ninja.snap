@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: err
+input_file: parse/tests/inputs/simple.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/simple.ninja:2:5: Expected identifier, got newline
+rule
+    ^ near here
