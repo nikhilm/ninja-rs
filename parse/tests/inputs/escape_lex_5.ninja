@@ -1,0 +1,2 @@
+rule foo
+    command = bar${}uh need some ident

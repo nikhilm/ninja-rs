@@ -1,4 +1,4 @@
-use insta::assert_display_snapshot;
+use insta::{assert_debug_snapshot, assert_display_snapshot};
 use ninja_parse::Parser;
 use std::fs;
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
@@ -46,8 +46,10 @@ fn test_inputs() {
     glob_exec(&base, "inputs/*.ninja", |path| {
         let input = fs::read(path).unwrap();
         let parser = Parser::new(&input, Some(path.as_os_str().to_str().unwrap().to_string()));
-        // TODO: Support display on valid ASTs.
-        let err = parser.parse().unwrap_err();
-        assert_display_snapshot!(err);
+        let res = parser.parse();
+        match res {
+            Ok(ast) => assert_debug_snapshot!(ast),
+            Err(e) => assert_display_snapshot!(e),
+        };
     });
 }

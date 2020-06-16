@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/escape_lex_3.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/escape_lex_3.ninja:2:20: Expected identifier
+    command = bar${
+                   ^ near here

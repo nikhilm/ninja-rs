@@ -1,0 +1,3 @@
+# edited to remove trailing newline added by vim.
+rule foo
+    command = bar$

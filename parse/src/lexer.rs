@@ -115,9 +115,9 @@ pub enum LexerError {
     /// was encountered.
     #[error("Unexpected EOF")]
     UnexpectedEof(Pos),
-    #[error("Illegal character {1}")]
+    #[error("Illegal character")]
     IllegalCharacter(Pos, u8),
-    #[error("Expected identifier ([a-zA-Z_-]): {1}")]
+    #[error("Expected identifier ([a-zA-Z_-])")]
     NotAnIdentifier(Pos, u8),
     #[error("Missing closing paren '}}'")]
     MissingParen(Pos),
@@ -440,7 +440,7 @@ impl<'a> Lexer<'a> {
                 Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
             }
             0 => Err(LexerError::UnexpectedEof(Pos(pos))),
-            _ => Err(LexerError::IllegalCharacter(Pos(pos), self.ch)),
+            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), self.ch)),
         };
         // Advance either way so the rest of the lexer can continue;
         self.advance();

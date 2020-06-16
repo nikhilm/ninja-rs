@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/escape_lex_4.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/escape_lex_4.ninja:2:21: Expected closing parentheses '}'
+    command = bar${a missing paren
+                    ^ near here

@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/escape_lex_2.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/escape_lex_2.ninja:3:18: Unexpected EOF
+    command = bar$
+                 ^ near here

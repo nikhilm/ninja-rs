@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/escape_lex_1.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/escape_lex_1.ninja:2:19: Illegal character
+    command = bar$(goober
+                  ^ near here

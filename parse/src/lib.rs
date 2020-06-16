@@ -38,14 +38,14 @@ impl ParseError {
     fn from_lexer_error(err: LexerError, lexer: &Lexer) -> ParseError {
         match err {
             LexerError::UnexpectedEof(pos) => ParseError::new("Unexpected EOF", pos, lexer),
-            LexerError::IllegalCharacter(pos, ch) => {
-                ParseError::new(format!("Illegal character {}", ch), pos, lexer)
+            LexerError::IllegalCharacter(pos, _ch) => {
+                ParseError::new("Illegal character", pos, lexer)
             }
-            LexerError::NotAnIdentifier(pos, ch) => {
-                ParseError::new(format!("Not an identifier {}", ch), pos, lexer)
+            LexerError::NotAnIdentifier(pos, _ch) => {
+                ParseError::new("Expected identifier", pos, lexer)
             }
             LexerError::MissingParen(pos) => {
-                ParseError::new("Expected closing parentheses '}}'", pos, lexer)
+                ParseError::new("Expected closing parentheses '}'", pos, lexer)
             }
         }
     }
