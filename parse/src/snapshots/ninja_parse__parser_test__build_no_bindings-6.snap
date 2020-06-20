@@ -12,13 +12,19 @@ Description {
                 99,
                 104,
             ],
-            command: [
-                116,
-                111,
-                117,
-                99,
-                104,
-            ],
+            command: Expr(
+                [
+                    Literal(
+                        [
+                            116,
+                            111,
+                            117,
+                            99,
+                            104,
+                        ],
+                    ),
+                ],
+            ),
         },
         Rule {
             name: [
@@ -28,11 +34,17 @@ Description {
                 101,
                 114,
             ],
-            command: [
-                103,
-                99,
-                99,
-            ],
+            command: Expr(
+                [
+                    Literal(
+                        [
+                            103,
+                            99,
+                            99,
+                        ],
+                    ),
+                ],
+            ),
         },
     ],
     builds: [

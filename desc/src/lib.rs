@@ -6,6 +6,7 @@ pub use ast::*;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     str::Utf8Error,
+    string::FromUtf8Error,
 };
 
 #[derive(Error, Debug)]
@@ -13,6 +14,8 @@ use std::{
 pub enum ProcessingError {
     #[error("utf-8 error")]
     Utf8Error(#[from] Utf8Error),
+    #[error("string utf-8 error")]
+    StringUtf8Error(#[from] FromUtf8Error),
     #[error("duplicate rule name: {0}")]
     DuplicateRule(String),
     #[error("duplicate output: {0}")]
@@ -31,7 +34,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         PHONY,
         past::Rule {
             name: PHONY,
-            command: &[],
+            command: past::Expr(vec![]),
         },
     );
     for rule in past.rules {
@@ -76,7 +79,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
                             std::str::from_utf8(other)?.to_owned(),
                         ));
                     }
-                    Action::Command(std::str::from_utf8(rule.unwrap().command)?.to_owned())
+                    Action::Command(String::from_utf8(rule.unwrap().command.eval())?)
                 }
             }
         };
@@ -110,13 +113,13 @@ mod test {
         ($name:literal) => {
             past::Rule {
                 name: $name.as_bytes(),
-                command: b"",
+                command: past::Expr(vec![past::Term::Literal(b"")]),
             }
         };
         ($name:literal, $command:literal) => {
             past::Rule {
                 name: $name.as_bytes(),
-                command: $command.as_bytes(),
+                command: past::Expr(vec![past::Term::Literal($command.as_bytes())]),
             }
         };
     }

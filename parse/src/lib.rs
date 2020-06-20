@@ -100,18 +100,60 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn expect_value(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.handle_eof("literal").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Literal(_) => Ok(token),
-                    _ => Err(ParseError::new(
-                        format!("Expected literal, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
+    fn expect_value(&mut self) -> Result<Expr<'a>, ParseError> {
+        // The newline is consumed, which is OK.
+        // Can be done more succinctly using map_while, which is a nightly API.
+        #[derive(Debug)]
+        enum ErrorShim<'b> {
+            LexerError(LexerError),
+            UnexpectedLexeme(Lexeme<'b>, lexer::Pos),
+        }
+        let mut latest_pos = None;
+        let terms: Result<Vec<Term>, ErrorShim> = (&mut self.lexer)
+            .take_while(|res| {
+                if let Ok((lexeme, pos)) = res {
+                    latest_pos = Some(*pos);
+                    !matches!(lexeme, Lexeme::Newline)
+                } else {
+                    // Errors are "accepted" by take_while so that they show up in the terms and
+                    // affect the result.
+                    true
+                }
+            })
+            .map(|res| {
+                if let Ok((lexeme, pos)) = res {
+                    match lexeme {
+                        Lexeme::Escape(v) | Lexeme::Literal(v) => Ok(Term::Literal(v)),
+                        Lexeme::VarRef(_, v) => Ok(Term::Reference(v)),
+                        _ => Err(ErrorShim::UnexpectedLexeme(lexeme, pos)),
+                    }
+                } else {
+                    Err(ErrorShim::LexerError(res.unwrap_err()))
+                }
+            })
+            .collect();
+        terms
+            .map_err(|e| match e {
+                ErrorShim::UnexpectedLexeme(lexeme, pos) => ParseError::new(
+                    format!(
+                        "Expected literal, escape or variable reference. Found {}",
+                        lexeme
+                    ),
+                    pos,
+                    &self.lexer,
+                ),
+                ErrorShim::LexerError(e) => ParseError::from_lexer_error(e, &self.lexer),
+            })
+            .and_then(|terms| {
+                if terms.is_empty() {
+                    // we will either have seen at least one token in the consume, so that latest_pos
+                    // is initialized, or the lexer is done, and last_pos will return successfully.
+                    let pos = latest_pos.unwrap_or_else(|| self.lexer.last_pos());
+                    Err(ParseError::new("Expected value", pos, &self.lexer))
+                } else {
+                    Ok(Expr(terms))
+                }
+            })
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {
@@ -156,11 +198,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn read_assignment(&mut self) -> Result<(&'a [u8], &'a [u8]), ParseError> {
+    fn read_assignment(&mut self) -> Result<(&'a [u8], Expr<'a>), ParseError> {
         let var = self.expect_identifier()?;
         self.discard_assignment()?;
         let value = self.expect_value()?;
-        Ok((var.value(), value.value()))
+        Ok((var.value(), value))
     }
 
     fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
@@ -358,13 +400,20 @@ command"#,
                 r#"rule cc
   command ="#,
                 12,
-                "literal",
+                "value",
             ),
             (
                 r#"rule cc
   command="#,
                 11,
-                "literal",
+                "value",
+            ),
+            (
+                r#"rule cc
+  command=
+"#,
+                11,
+                "value",
             ),
         ] {
             let parser = Parser::new(input.as_bytes(), None);
