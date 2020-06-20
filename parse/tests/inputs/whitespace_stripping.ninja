@@ -1,0 +1,10 @@
+# slight variation on the example in the ninja manual since this parser does not support top-level assignments yet.
+# two words with one space
+rule foo
+  command = foo $
+      bar
+
+# one word with no space
+rule bar
+  command = foo$
+      bar

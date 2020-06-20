@@ -154,6 +154,7 @@ impl<'a> Parser<'a> {
                     Ok(Expr(terms))
                 }
             })
+        // TODO: Strip whitespace of the first literal if any.
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {

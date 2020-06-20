@@ -407,8 +407,15 @@ impl<'a> Lexer<'a> {
         assert_eq!(self.data[pos], b'$');
         assert_eq!(pos + 1, self.offset);
 
+        let mut record_line = false;
         let result = match self.ch {
-            b' ' | b'\n' | b'\r' | b'$' | b':' => {
+            b'\n' => {
+                record_line = true;
+                // Unlike other escapes, this does not yield the newline. It throws it away without
+                // breaking whatever mode we are currently in.
+                Ok(Lexeme::Escape(&self.data[self.offset..self.offset]))
+            }
+            b' ' | b'\r' | b'$' | b':' => {
                 Ok(Lexeme::Escape(&self.data[self.offset..self.offset + 1]))
             }
             b'{' => {
@@ -444,6 +451,11 @@ impl<'a> Lexer<'a> {
         };
         // Advance either way so the rest of the lexer can continue;
         self.advance();
+        // The order of recording the line after advancing is important. It preserves the same
+        // order as next() and incorporates those invariants. TODO: Possible to assert?
+        if record_line {
+            self.record_line();
+        }
         result
     }
 }
@@ -495,15 +507,38 @@ impl<'a> Iterator for Lexer<'a> {
             let pos = Pos(self.offset);
             let ch = self.ch;
 
+            // Need to check the mode because an escape sequence can send the lexer back here, but
+            // in that case any whitespace right after the escape should be part of the next
+            // literal, not thrown away. But then there is also the complication of "all whitespace
+            // at the beginning of an assign is stripped". In addition, horizontal whitespace at
+            // the beginning of a line is always stripped. See the two_words_with_one_space
+            // example.
+            // What do we want:
+            // If we are not reading a value, then encountered whitespace should be eaten. If it is
+            // at the beginning of a line, it should yield an indent token. After that we should
+            // retry the loop since eating whitespace will advance the iterator.
+            // If we _are_ reading a value and we are at the beginning of a line, then the
+            // whitespace should be eaten. No indent should be yielded. Then we should continue in
+            // value mode.
+            // if we are reading a value, but not at the beginning of a line, then whitespace
+            // should NOT be eaten. proceed (do not continue) with the rest of the loop. Do not
+            // yield an indent.
             if ch == b' ' || ch == b'\t' {
                 // If this marks the beginning of the current line, consume all whitespace as an indent,
                 // otherwise skip horizontal whitespace.
                 let is_indent = self.line_offsets[self.line_offsets.len() - 1] == pos.0;
-                self.skip_horizontal_whitespace();
-                if is_indent {
-                    return Some(Ok((Lexeme::Indent, pos)));
+                if self.lexer_mode == LexerMode::ValueMode {
+                    if is_indent {
+                        self.skip_horizontal_whitespace();
+                        continue;
+                    }
                 } else {
-                    continue;
+                    self.skip_horizontal_whitespace();
+                    if is_indent {
+                        return Some(Ok((Lexeme::Indent, pos)));
+                    } else {
+                        continue;
+                    }
                 }
             }
 
@@ -519,6 +554,7 @@ impl<'a> Iterator for Lexer<'a> {
                     Some(Ok((Lexeme::Newline, pos)))
                 }
                 b'=' => {
+                    self.skip_horizontal_whitespace();
                     self.lexer_mode = LexerMode::ValueMode;
                     Some(Ok((Lexeme::Equals, pos)))
                 }
@@ -802,7 +838,7 @@ ef"#,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
                 Lexeme::Literal(b"abcd"),
-                Lexeme::Escape(b"\n"),
+                Lexeme::Escape(b""),
                 Lexeme::Literal(b"ef"),
             ]
         );
@@ -823,7 +859,7 @@ rule"#,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
                 Lexeme::Literal(b"abcd"),
-                Lexeme::Escape(b"\n"),
+                Lexeme::Escape(b""),
                 Lexeme::Newline,
                 Lexeme::Rule,
             ]

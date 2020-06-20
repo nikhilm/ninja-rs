@@ -1,0 +1,67 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/inputs/whitespace_stripping.ninja
+---
+Description {
+    rules: [
+        Rule {
+            name: [
+                102,
+                111,
+                111,
+            ],
+            command: Expr(
+                [
+                    Literal(
+                        [
+                            102,
+                            111,
+                            111,
+                            32,
+                        ],
+                    ),
+                    Literal(
+                        [],
+                    ),
+                    Literal(
+                        [
+                            98,
+                            97,
+                            114,
+                        ],
+                    ),
+                ],
+            ),
+        },
+        Rule {
+            name: [
+                98,
+                97,
+                114,
+            ],
+            command: Expr(
+                [
+                    Literal(
+                        [
+                            102,
+                            111,
+                            111,
+                        ],
+                    ),
+                    Literal(
+                        [],
+                    ),
+                    Literal(
+                        [
+                            98,
+                            97,
+                            114,
+                        ],
+                    ),
+                ],
+            ),
+        },
+    ],
+    builds: [],
+}

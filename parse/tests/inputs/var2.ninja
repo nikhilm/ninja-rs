@@ -1,0 +1,5 @@
+rule echo
+  command = ${bar} foo ${another} hello hello
+
+rule echo2
+  command = ${bar}$ foo$${another} hello

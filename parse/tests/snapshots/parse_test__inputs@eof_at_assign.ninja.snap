@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/eof_at_assign.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/eof_at_assign.ninja:2:12: Expected value
+  command =
+           ^ near here
