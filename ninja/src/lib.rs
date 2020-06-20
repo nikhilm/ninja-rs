@@ -1,7 +1,6 @@
 use std::fmt;
 
 use anyhow::{self, Context};
-use structopt::StructOpt;
 use thiserror::Error;
 
 use ninja_build::{build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler};
@@ -10,81 +9,17 @@ use ninja_metrics::scoped_metric;
 use ninja_parse::Parser;
 use ninja_tasks::description_to_tasks;
 
-#[derive(Debug)]
-pub struct NumCpus(usize);
-
-/*
- * This type is required to work around some shortcomings in structopt.
- *
- * 1. We want a default value for this that is dynamic (number of CPUs).
- * 2. We want the actual text in [default...] to have some extra text besides just the number.
- * 3. We want the default to be inferred from FromStr correctly when the user specifies nothing.
- *
- * To satisfy 1, we wrap usize in a newtype and impl a Default on it.
- * To satisfy 2, realize that structopt uses ToString+Default, and ToString is implied by Display.
- * Tack on the extra description in Display.
- *
- * 3 is tricky.
- * To actually get the value, structopt will call FromStr on whatever value exists. When the user
- * passes something, it is whatever the user passed and we can use usize::from_str. But when the
- * user didn't pass anything, FromStr is called on the value of ToString. This has our suffix,
- * which we need to remove. Otherwise the parse will fail and the command fails as the "user" did
- * not specify a valid default.
- */
-impl NumCpus {
-    const SUFFIX: &'static str = ", derived from CPUs available";
-}
-
-impl Default for NumCpus {
-    fn default() -> NumCpus {
-        NumCpus(num_cpus::get())
-    }
-}
-
-impl fmt::Display for NumCpus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}, derived from CPUs available", self.0)
-    }
-}
-
-impl std::str::FromStr for NumCpus {
-    type Err = <usize as std::str::FromStr>::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.ends_with(NumCpus::SUFFIX) {
-            Ok(NumCpus(usize::from_str(
-                &s[..(s.len() - NumCpus::SUFFIX.len())],
-            )?))
-        } else {
-            Ok(NumCpus(usize::from_str(s)?))
-        }
-    }
-}
-
 /// Nothing to do with rustc debug vs. release.
 /// This is just ninja terminology.
 #[derive(Debug, PartialEq, Eq)]
 pub enum DebugMode {
+    List,
     Stats,
 }
 
 #[derive(Error, Debug)]
-pub enum DebugModeError {
-    #[error("Unknown debug setting {0}")]
-    Unknown(String),
-
-    #[error(
-        "
-debugging modes:
-  stats        print operation counts/timing info
-  explain      explain what caused a command to execute
-  keepdepfile  don't delete depfiles after they're read by ninja
-  keeprsp      don't delete @response files on success
-multiple modes can be enabled via -d FOO -d BAR
-"
-    )]
-    List,
-}
+#[error("Unknown debug setting '{0}'")]
+pub struct DebugModeError(String);
 
 impl std::str::FromStr for DebugMode {
     type Err = DebugModeError;
@@ -92,34 +27,18 @@ impl std::str::FromStr for DebugMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "stats" => Ok(DebugMode::Stats),
-            "list" => Err(DebugModeError::List),
-            e @ _ => Err(DebugModeError::Unknown(e.to_owned())),
+            "list" => Ok(DebugMode::List),
+            e @ _ => Err(DebugModeError(e.to_owned())),
         }
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(
-    name = "ninjars",
-    usage = "ninjars [options] [targets...]\n\nIf targets are unspecified, builds the 'default' target (see the manual).",
-    version = "0.1.0"
-)]
+#[derive(Debug)]
 pub struct Config {
-    /// change to DIR before doing anything else
-    #[structopt(short = "-C", name = "DIR")]
     pub execution_dir: Option<String>,
-
-    /// run N jobs in parallel
-    #[structopt(short = "-j", default_value, name = "N")]
-    pub parallelism: NumCpus,
-
-    /// specify input build file
-    #[structopt(short = "-f", default_value = "build.ninja", name = "FILE")]
+    pub parallelism: usize,
     pub build_file: String,
-
-    /// enable debugging (use -d list to list modes)
-    #[structopt(short = "-d", name = "MODE")]
-    pub debug_modes: Option<Vec<DebugMode>>,
+    pub debug_modes: Vec<DebugMode>,
 }
 
 pub fn run(config: Config) -> anyhow::Result<()> {
@@ -127,11 +46,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         std::env::set_current_dir(&dir).with_context(|| format!("changing to {} for -C", &dir))?;
     }
 
-    let metrics_enabled = config
-        .debug_modes
-        .as_ref()
-        .map(|vs| vs.iter().any(|v| v == &DebugMode::Stats))
-        .unwrap_or_default();
+    let metrics_enabled = config.debug_modes.iter().any(|v| v == &DebugMode::Stats);
     if metrics_enabled {
         ninja_metrics::enable();
     }
@@ -176,7 +91,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
     let rebuilder: MTimeRebuilder<_> = MTimeRebuilder::new(default_mtimestate());
-    let scheduler = ParallelTopoScheduler::new(config.parallelism.0);
+    let scheduler = ParallelTopoScheduler::new(config.parallelism);
     // let start = Start::All; // TODO: filter_keys();
     //build.build(keys_to_tasks, start);
     {

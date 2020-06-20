@@ -11,10 +11,10 @@ ninja-desc = { path = "../desc" }
 ninja-tasks = { path = "../tasks" }
 ninja-metrics = { path = "../metrics" }
 once_cell = "^1.4"
-structopt = { version = "0.3", default-features = false }
 num_cpus = "^1.0"
 anyhow = "^1.0"
 thiserror = "^1.0"
+pico-args = "0.3"
 
 # Temporary for the model.
 petgraph = "^0.5"
