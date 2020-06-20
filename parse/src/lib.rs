@@ -1,6 +1,9 @@
 #![feature(is_sorted)]
 
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    iter::Peekable,
+};
 
 use thiserror::Error;
 
@@ -77,17 +80,33 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn handle_eof(
+    fn handle_eof_and_comments(
         &mut self,
         msg_type: &'static str,
     ) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
-        self.lexer
-            .next()
-            .ok_or_else(|| ParseError::eof(format!("Expected {}, got EOF", msg_type), &self.lexer))
+        loop {
+            let item = self.lexer.next();
+            if item.is_none() {
+                return Err(ParseError::eof(
+                    format!("Expected {}, got EOF", msg_type),
+                    &self.lexer,
+                ));
+            } else {
+                let item = item.unwrap();
+                if let Ok((lexeme, _)) = &item {
+                    match lexeme {
+                        Lexeme::Comment(_) => continue,
+                        _ => return Ok(item),
+                    }
+                } else {
+                    return Ok(item);
+                }
+            }
+        }
     }
 
     fn expect_identifier(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.handle_eof("identifier").and_then(|res| {
+        self.handle_eof_and_comments("identifier").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Identifier(_) => Ok(token),
@@ -98,6 +117,31 @@ impl<'a> Parser<'a> {
                     )),
                 })
         })
+    }
+
+    fn expect_identifier_eating_indent(&mut self) -> Result<Lexeme<'a>, ParseError> {
+        let mut stop = true;
+        loop {
+            let result = self.handle_eof_and_comments("identifier").and_then(|res| {
+                res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                    .and_then(|(token, pos)| match token {
+                        Lexeme::Indent => {
+                            stop = false;
+                            Ok(token)
+                        }
+                        Lexeme::Identifier(_) => Ok(token),
+                        _ => Err(ParseError::new(
+                            format!("Expected identifier, got {}", token),
+                            pos,
+                            &self.lexer,
+                        )),
+                    })
+            });
+            if stop {
+                return result;
+            }
+            stop = true;
+        }
     }
 
     fn expect_value(&mut self) -> Result<Expr<'a>, ParseError> {
@@ -113,7 +157,7 @@ impl<'a> Parser<'a> {
             .take_while(|res| {
                 if let Ok((lexeme, pos)) = res {
                     latest_pos = Some(*pos);
-                    !matches!(lexeme, Lexeme::Newline)
+                    !matches!(lexeme, Lexeme::Newline) && !matches!(lexeme, Lexeme::Comment(_))
                 } else {
                     // Errors are "accepted" by take_while so that they show up in the terms and
                     // affect the result.
@@ -158,7 +202,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {
-        self.handle_eof("indent").and_then(|res| {
+        self.handle_eof_and_comments("indent").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Indent => Ok(()),
@@ -172,7 +216,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_newline(&mut self) -> Result<(), ParseError> {
-        self.handle_eof("newline").and_then(|res| {
+        self.handle_eof_and_comments("newline").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Newline => Ok(()),
@@ -186,7 +230,7 @@ impl<'a> Parser<'a> {
     }
 
     fn discard_assignment(&mut self) -> Result<(), ParseError> {
-        self.handle_eof("=").and_then(|res| {
+        self.handle_eof_and_comments("=").and_then(|res| {
             res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
                 .and_then(|(token, pos)| match token {
                     Lexeme::Equals => Ok(()),
@@ -200,12 +244,14 @@ impl<'a> Parser<'a> {
     }
 
     fn read_assignment(&mut self) -> Result<(&'a [u8], Expr<'a>), ParseError> {
-        let var = self.expect_identifier()?;
+        let var = self.expect_identifier_eating_indent()?;
         self.discard_assignment()?;
         let value = self.expect_value()?;
         Ok((var.value(), value))
     }
 
+    // really need a peekable overlay while allowing us to access the lexer whenever we want
+    // (mostly for errors).
     fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
         let identifier = self.expect_identifier()?;
         self.discard_newline()?;
@@ -332,7 +378,7 @@ impl<'a> Parser<'a> {
             builds: Vec::new(),
         };
         while let Some(result) = self.lexer.next() {
-            let (token, _pos) =
+            let (token, pos) =
                 result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             match token {
                 Lexeme::Rule => {
@@ -344,7 +390,11 @@ impl<'a> Parser<'a> {
                 Lexeme::Newline => {}
                 Lexeme::Comment(_) => {}
                 _ => {
-                    todo!("Unhandled token {:?}", token);
+                    return Err(ParseError::new(
+                        format!("Unhandled token {:?}", token),
+                        pos,
+                        &self.lexer,
+                    ));
                 }
             }
         }
@@ -376,6 +426,7 @@ build foo.o: cc foo.c"#;
         for (input, expected_col) in &[("rule cc:", 8), ("rule", 5), ("rule\n", 5)] {
             let parser = Parser::new(input.as_bytes(), None);
             let err = parser.parse().unwrap_err();
+            eprintln!("{:?}", input);
             assert_eq!(err.position.line, 1);
             assert_eq!(err.position.column, *expected_col);
         }
@@ -446,6 +497,7 @@ rule touch
                 input
             );
             let parser = Parser::new(with_rule.as_bytes(), None);
+            eprintln!("{:?}", with_rule);
             let ast = parser.parse().expect("valid parse");
             assert_debug_snapshot!(ast);
         }

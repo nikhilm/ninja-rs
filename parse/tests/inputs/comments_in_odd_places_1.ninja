@@ -1,0 +1,4 @@
+# this should fail the parse.
+rule foo
+  command = foo $ # two words with one space
+      bar

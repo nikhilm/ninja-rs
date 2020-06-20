@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/inputs/comments_in_odd_places_1.ninja
+---
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/comments_in_odd_places_1.ninja:4:7: Unhandled token Literal([98, 97, 114])
+      bar
+      ^ near here

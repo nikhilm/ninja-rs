@@ -296,12 +296,20 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_comment(&mut self) -> Lexeme<'a> {
-        // TODO: Handle \r\n
         let start = self.offset - 1; // Includes the '#' in the comment.
         let mut end = self.offset;
         while !self.done() && self.ch != b'\n' {
             end += 1;
             self.advance();
+        }
+        // If ended because of newline, make the newline a part of the comment and record a line.
+        // This simplifies the parser because it doesn't have to remember to discard newlines every
+        // time it sees a comment.
+        if self.ch == b'\n' {
+            end += 1;
+            // Order of these 2 calls is important to match what next() does when recording a line.
+            self.advance();
+            self.record_line();
         }
         Lexeme::Comment(&self.data[start..end])
     }
@@ -659,7 +667,7 @@ pool noodles"#;
 pool useful # another comment
 # pool nachos
 "#,
-                &["# a comment", "# another comment", "# pool nachos"],
+                &["# a comment\n", "# another comment\n", "# pool nachos\n"],
             ),
         ];
 
