@@ -51,8 +51,8 @@ pub struct Rule<'a> {
 pub struct Build<'a> {
     pub rule: BytesRef<'a>,
     // These will become structs once we discriminate inputs and outputs.
-    pub inputs: Vec<BytesRef<'a>>,
-    pub outputs: Vec<BytesRef<'a>>,
+    pub inputs: Vec<Expr<'a>>,
+    pub outputs: Vec<Expr<'a>>,
     // ...
 }
 

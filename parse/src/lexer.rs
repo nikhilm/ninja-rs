@@ -46,6 +46,7 @@ pub enum Lexeme<'a> {
     Colon,
     Default,
     Equals,
+    Expr(Vec<Lexeme<'a>>),
     // Keep as a separate token type for now, since we may need it when pretty-printing a
     // description.
     Escape(&'a [u8]),
@@ -72,6 +73,7 @@ impl<'a> Display for Lexeme<'a> {
                 Lexeme::Build => "build",
                 Lexeme::Colon => ":",
                 Lexeme::Default => "default",
+                Lexeme::Expr(_) => "expression",
                 Lexeme::Escape(_) => "escape",
                 Lexeme::Equals => "=",
                 Lexeme::Identifier(_) => "identifier",
@@ -97,6 +99,18 @@ impl<'a> Lexeme<'a> {
             Lexeme::Comment(v) | Lexeme::Identifier(v) | Lexeme::Literal(v) => v,
             _ => panic!("Incorrect token type"),
         }
+    }
+
+    pub(crate) fn check(&self) {
+        debug_assert!(if let Lexeme::Expr(items) = self {
+            items.iter().all(|item| {
+                matches!(item, Lexeme::Literal(_))
+                    || matches!(item, Lexeme::Escape(_))
+                    || matches!(item, Lexeme::VarRef(_, _))
+            })
+        } else {
+            true
+        });
     }
 }
 
@@ -341,10 +355,21 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    // Reading a path... probably requires a path to be more of a parser Expr than yielding
+    // multiple literal/escape lexemes, since it is hard for the parser to distinguish multiple
+    // paths in that case. In which case read_literal should also devolve into read_expr.
+    // This may also allow us to better deal with newlines and trailing comments, because the lexer
+    // can know where to close a lexeme. but the current literal reader breaks on encountering a $
+    // and read_escape breaks on encountering a '$\n', so that indents on newlines are correctly
+    // handled as being part of the value, so we need to think about that too.
     fn read_path(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         let start = pos;
         let mut end = self.offset;
+        // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
+        // allocations are a problem and we want to avoid them in the common case of no special
+        // characters in the path. Can also use smallvec.
+        let mut lexemes = Vec::new();
         loop {
             // This is effectively peeking.
             // If we want to stop processing, at say ':', we will simply bail and the next call to
@@ -381,7 +406,8 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Ok(Lexeme::Literal(&self.data[start..end]))
+        lexemes.push(Lexeme::Literal(&self.data[start..end]));
+        Ok(Lexeme::Expr(lexemes))
     }
 
     fn read_literal(&mut self, pos: usize) -> LexerResult<'a> {
@@ -410,7 +436,7 @@ impl<'a> Lexer<'a> {
         Ok(Lexeme::Literal(&self.data[start..end]))
     }
 
-    fn read_escape(&mut self, pos: usize) -> Result<Lexeme<'a>, LexerError> {
+    fn read_escape(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         assert_eq!(self.data[pos], b'$');
         assert_eq!(pos + 1, self.offset);
@@ -712,7 +738,7 @@ pool useful # another comment
             let res = parse_and_slice_no_error(test);
             assert_eq!(res.len(), 2);
             assert!(is_keyword(&res[0]));
-            assert_eq!(res[1], Lexeme::Literal(b"apath"));
+            assert_eq!(res[1], Lexeme::Expr(vec![Lexeme::Literal(b"apath")]));
         }
     }
 
@@ -723,10 +749,10 @@ pool useful # another comment
             res,
             &[
                 Lexeme::Build,
-                Lexeme::Literal(b"foo.o"),
+                Lexeme::Expr(vec![Lexeme::Literal(b"foo.o")]),
                 Lexeme::Colon,
                 Lexeme::Identifier(b"cc"),
-                Lexeme::Literal(b"foo.c")
+                Lexeme::Expr(vec![Lexeme::Literal(b"foo.c")]),
             ]
         );
     }
@@ -794,12 +820,12 @@ build next: touch"#,
                 Lexeme::Newline,
                 Lexeme::Newline,
                 Lexeme::Build,
-                Lexeme::Literal(b"no_inputs.txt"),
+                Lexeme::Expr(vec![Lexeme::Literal(b"no_inputs.txt")]),
                 Lexeme::Colon,
                 Lexeme::Identifier(b"touch"),
                 Lexeme::Newline,
                 Lexeme::Build,
-                Lexeme::Literal(b"next"),
+                Lexeme::Expr(vec![Lexeme::Literal(b"next")]),
                 Lexeme::Colon,
                 Lexeme::Identifier(b"touch"),
             ]

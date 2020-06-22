@@ -1,13 +1,13 @@
 use ninja_parse::ast as past;
-use thiserror::Error;
-
-pub mod ast;
-pub use ast::*;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     str::Utf8Error,
     string::FromUtf8Error,
 };
+use thiserror::Error;
+
+pub mod ast;
+pub use ast::*;
 
 #[derive(Error, Debug)]
 #[error("some processing error TODO")]
@@ -52,23 +52,23 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         }
     }
 
-    // We process outputs first so duplicate detection can be done without confusing with inputs.
     let mut outputs_seen = HashSet::new();
-    for build in &past.builds {
+    let mut builds = Vec::with_capacity(past.builds.len());
+    for build in past.builds {
+        let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
         for output in &build.outputs {
-            if outputs_seen.contains(output) {
+            let output = output.eval();
+            if outputs_seen.contains(&output) {
                 // TODO: Also add line/col information from token position, which isn't being preserved
                 // right now!
                 return Err(ProcessingError::DuplicateOutput(
-                    std::str::from_utf8(output)?.to_owned(),
+                    String::from_utf8(output)?.to_owned(),
                 ));
             }
-            outputs_seen.insert(output);
+            outputs_seen.insert(output.clone());
+            evaluated_outputs.push(output);
         }
-    }
 
-    let mut builds = Vec::with_capacity(past.builds.len());
-    for build in past.builds {
         let action = {
             match build.rule {
                 [112, 104, 111, 110, 121] => Action::Phony,
@@ -85,8 +85,8 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         };
         builds.push(Build {
             action,
-            inputs: build.inputs.iter().map(|i| i.to_vec()).collect(),
-            outputs: build.outputs.iter().map(|i| i.to_vec()).collect(),
+            inputs: build.inputs.iter().map(|i| i.eval()).collect(),
+            outputs: evaluated_outputs,
         })
     }
 
@@ -157,12 +157,12 @@ mod test {
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![b"a.txt"],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
                 },
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![b"a.txt"],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
                 },
             ],
         };
@@ -180,12 +180,18 @@ mod test {
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![b"b.txt", b"a.txt"],
+                    outputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"b.txt")]),
+                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                    ],
                 },
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![b"a.txt", b"c.txt"],
+                    outputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                        past::Expr(vec![past::Term::Literal(b"c.txt")]),
+                    ],
                 },
             ],
         };
@@ -202,7 +208,7 @@ mod test {
             builds: vec![past::Build {
                 rule: b"baloney",
                 inputs: vec![],
-                outputs: vec![b"a.txt"],
+                outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
             }],
         };
         assert!(matches!(
@@ -222,18 +228,24 @@ mod test {
             builds: vec![
                 past::Build {
                     rule: b"phony",
-                    inputs: vec![b"source.txt"],
-                    outputs: vec![b"a.txt"],
+                    inputs: vec![past::Expr(vec![past::Term::Literal(b"source.txt")])],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
                 },
                 past::Build {
                     rule: b"cc",
-                    inputs: vec![b"hello.c", b"hello.h"],
-                    outputs: vec![b"hello.o"],
+                    inputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"hello.c")]),
+                        past::Expr(vec![past::Term::Literal(b"hello.h")]),
+                    ],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello.o")])],
                 },
                 past::Build {
                     rule: b"link",
-                    inputs: vec![b"hello.o", b"my_shared_lib.so"],
-                    outputs: vec![b"hello"],
+                    inputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"hello.o")]),
+                        past::Expr(vec![past::Term::Literal(b"my_shared_lib.so")]),
+                    ],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello")])],
                 },
             ],
         };

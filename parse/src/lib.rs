@@ -1,9 +1,6 @@
 #![feature(is_sorted)]
 
-use std::{
-    fmt::{Display, Formatter},
-    iter::Peekable,
-};
+use std::fmt::{Display, Formatter};
 
 use thiserror::Error;
 
@@ -102,6 +99,24 @@ impl<'a> Parser<'a> {
                     return Ok(item);
                 }
             }
+        }
+    }
+
+    fn expr_to_expr(lexeme: Lexeme<'a>) -> Expr<'a> {
+        lexeme.check();
+        if let Lexeme::Expr(items) = lexeme {
+            Expr(
+                items
+                    .iter()
+                    .map(|item| match item {
+                        Lexeme::Literal(v) | Lexeme::Escape(v) => Term::Literal(v),
+                        Lexeme::VarRef(_, v) => Term::Reference(v),
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            )
+        } else {
+            panic!("Unexpected lexeme {}", lexeme);
         }
     }
 
@@ -276,8 +291,8 @@ impl<'a> Parser<'a> {
             Inputs,
         };
 
-        let mut outputs: Vec<&[u8]> = Vec::new();
-        let mut inputs: Vec<&[u8]> = Vec::new();
+        let mut outputs: Vec<Expr<'a>> = Vec::new();
+        let mut inputs: Vec<Expr<'a>> = Vec::new();
         let mut rule = None;
         let mut state = Read::Outputs;
         let mut first_line_pos = None;
@@ -289,8 +304,8 @@ impl<'a> Parser<'a> {
             }
             match state {
                 Read::Outputs => match token {
-                    Lexeme::Literal(v) => {
-                        outputs.push(v);
+                    Lexeme::Expr(_) => {
+                        outputs.push(Parser::expr_to_expr(token));
                     }
                     Lexeme::Colon => {
                         if outputs.is_empty() {
@@ -328,8 +343,8 @@ impl<'a> Parser<'a> {
                     }
                 },
                 Read::Inputs => match token {
-                    Lexeme::Literal(v) => {
-                        inputs.push(v);
+                    Lexeme::Expr(_) => {
+                        inputs.push(Parser::expr_to_expr(token));
                     }
                     Lexeme::Newline => {
                         break;
