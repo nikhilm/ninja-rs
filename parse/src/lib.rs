@@ -271,18 +271,15 @@ impl<'a> Parser<'a> {
         // TODO: Support all kinds of optional outputs and dependencies.
         #[derive(Debug, PartialEq, Eq)]
         enum Read {
-            FirstOutput,
-            RemainingOutputs,
+            Outputs,
             Rule,
             Inputs,
         };
 
-        // I'd have really liked a Vec<&[u8]> here and then converting to an owned vec at the last
-        // minute in the edge builder, but haven't figured an ergonomic way for that yet.
         let mut outputs: Vec<&[u8]> = Vec::new();
         let mut inputs: Vec<&[u8]> = Vec::new();
         let mut rule = None;
-        let mut state = Read::FirstOutput;
+        let mut state = Read::Outputs;
         let mut first_line_pos = None;
         while let Some(result) = self.lexer.next() {
             let (token, pos) =
@@ -291,25 +288,18 @@ impl<'a> Parser<'a> {
                 first_line_pos = Some(pos);
             }
             match state {
-                Read::FirstOutput => match token {
+                Read::Outputs => match token {
                     Lexeme::Literal(v) => {
                         outputs.push(v);
-                        state = Read::RemainingOutputs;
-                    }
-                    _ => {
-                        return Err(ParseError::new(
-                            "Expected at least one output for build",
-                            pos,
-                            &self.lexer,
-                        ));
-                    }
-                },
-                Read::RemainingOutputs => match token {
-                    Lexeme::Literal(v) => {
-                        outputs.push(v);
-                        state = Read::RemainingOutputs;
                     }
                     Lexeme::Colon => {
+                        if outputs.is_empty() {
+                            return Err(ParseError::new(
+                                "Expected at least one output for build",
+                                pos,
+                                &self.lexer,
+                            ));
+                        }
                         state = Read::Rule;
                     }
                     _ => {
