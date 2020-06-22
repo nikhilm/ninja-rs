@@ -364,8 +364,7 @@ impl<'a> Lexer<'a> {
     // handled as being part of the value, so we need to think about that too.
     fn read_path(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
-        let start = pos;
-        let mut end = self.offset;
+        let mut cur = pos;
         // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
         // allocations are a problem and we want to avoid them in the common case of no special
         // characters in the path. Can also use smallvec.
@@ -375,9 +374,6 @@ impl<'a> Lexer<'a> {
             // If we want to stop processing, at say ':', we will simply bail and the next call to
             // next() will proceed from there.
             match self.ch {
-                b'$' => {
-                    todo!("escape sequences are not implemented!");
-                }
                 b'\n' => {
                     // Done with this path. also switch modes.
                     self.lexer_mode = LexerMode::Default;
@@ -398,6 +394,40 @@ impl<'a> Lexer<'a> {
                     self.lexer_mode = LexerMode::BuildRuleMode;
                     break;
                 }
+                0 => {
+                    // EOF
+                    break;
+                }
+                _ => {
+                    lexemes.push(self.read_literal_for_path(cur)?);
+                    cur = self.offset;
+                }
+            }
+        }
+
+        if lexemes.is_empty() {
+            Err(LexerError::UnexpectedEof(Pos(cur)))
+        } else {
+            Ok(Lexeme::Expr(lexemes))
+        }
+    }
+
+    // TODO: Combine with read_literal.
+    fn read_literal_for_path(&mut self, pos: usize) -> LexerResult<'a> {
+        assert!(pos < self.data.len());
+        let start = pos;
+        let mut end = self.offset;
+        loop {
+            match self.ch {
+                b'$' | b' ' | b'|' | b':' => {
+                    // Don't switch modes, since we don't know how to interpret this yet.
+                    break;
+                }
+                b'\n' => {
+                    // Done with this literal. also switch modes.
+                    self.lexer_mode = LexerMode::Default;
+                    break;
+                }
                 _ => {
                     end += 1;
                     if self.advance().is_none() {
@@ -406,8 +436,7 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        lexemes.push(Lexeme::Literal(&self.data[start..end]));
-        Ok(Lexeme::Expr(lexemes))
+        Ok(Lexeme::Literal(&self.data[start..end]))
     }
 
     fn read_literal(&mut self, pos: usize) -> LexerResult<'a> {
