@@ -364,55 +364,74 @@ impl<'a> Lexer<'a> {
     // handled as being part of the value, so we need to think about that too.
     fn read_path(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
+        debug_assert!(![b'|', b':', b'\n', b' ']
+            .iter()
+            .any(|c| *c == self.data[pos]));
         let mut cur = pos;
         // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
         // allocations are a problem and we want to avoid them in the common case of no special
         // characters in the path. Can also use smallvec.
         let mut lexemes = Vec::new();
-        loop {
-            // This is effectively peeking.
-            // If we want to stop processing, at say ':', we will simply bail and the next call to
-            // next() will proceed from there.
-            match self.ch {
-                b'\n' => {
-                    // Done with this path. also switch modes.
-                    self.lexer_mode = LexerMode::Default;
-                    break;
-                }
-                b' ' => {
-                    // Done with this path.
-                    break;
-                }
-                b'|' => {
-                    todo!("Implicit outs/deps not supported!");
-                }
-                // Only expect to encounter this in `build` declarations.
-                // The parser will take care if that does not happen.
-                b':' => {
-                    // Separate from default because after reading the rule, we need to go back
-                    // to PathMode.
-                    self.lexer_mode = LexerMode::BuildRuleMode;
-                    break;
-                }
-                0 => {
-                    // EOF
-                    break;
-                }
-                _ => {
-                    lexemes.push(self.read_literal_for_path(cur)?);
-                    cur = self.offset;
+        match self.data[pos] {
+            b'$' => {
+                lexemes.push(self.read_escape(cur)?);
+            }
+            _ => {
+                lexemes.push(self.read_literal_for_path(cur)?);
+            }
+        }
+
+        if !self.done() {
+            cur = self.offset;
+            let ch = self.data[cur];
+            self.advance();
+
+            loop {
+                // This is effectively peeking.
+                // If we want to stop processing, at say ':', we will simply bail and the next call to
+                // next() will proceed from there.
+                match ch {
+                    b'\n' => {
+                        // Done with this path. also switch modes.
+                        self.lexer_mode = LexerMode::Default;
+                        break;
+                    }
+                    b' ' => {
+                        // Done with this path.
+                        break;
+                    }
+                    b'|' => {
+                        todo!("Implicit outs/deps not supported!");
+                    }
+                    // Only expect to encounter this in `build` declarations.
+                    // The parser will take care if that does not happen.
+                    b':' => {
+                        // Separate from default because after reading the rule, we need to go back
+                        // to PathMode.
+                        self.lexer_mode = LexerMode::BuildRuleMode;
+                        break;
+                    }
+                    0 => {
+                        // EOF
+                        break;
+                    }
+                    b'$' => {
+                        lexemes.push(self.read_escape(cur)?);
+                        cur = self.offset;
+                    }
+                    _ => {
+                        lexemes.push(self.read_literal_for_path(cur)?);
+                        cur = self.offset;
+                    }
                 }
             }
         }
 
-        if lexemes.is_empty() {
-            Err(LexerError::UnexpectedEof(Pos(cur)))
-        } else {
-            Ok(Lexeme::Expr(lexemes))
-        }
+        Ok(Lexeme::Expr(lexemes))
     }
 
     // TODO: Combine with read_literal.
+    // Probably easier to have this one not assume one character has already been read.
     fn read_literal_for_path(&mut self, pos: usize) -> LexerResult<'a> {
         assert!(pos < self.data.len());
         let start = pos;
