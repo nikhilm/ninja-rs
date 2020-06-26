@@ -1,0 +1,4 @@
+rule echo
+  command = echo $out
+
+build a$ path$ with$ spaces and$ another$ one: echo

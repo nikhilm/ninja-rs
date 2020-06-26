@@ -367,62 +367,57 @@ impl<'a> Lexer<'a> {
         debug_assert!(![b'|', b':', b'\n', b' ']
             .iter()
             .any(|c| *c == self.data[pos]));
-        let mut cur = pos;
         // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
         // allocations are a problem and we want to avoid them in the common case of no special
         // characters in the path. Can also use smallvec.
         let mut lexemes = Vec::new();
         match self.data[pos] {
             b'$' => {
-                lexemes.push(self.read_escape(cur)?);
+                lexemes.push(self.read_escape(pos)?);
             }
             _ => {
-                lexemes.push(self.read_literal_for_path(cur)?);
+                lexemes.push(self.read_literal_for_path(pos)?);
             }
         }
 
-        if !self.done() {
-            cur = self.offset;
+        while !self.done() {
+            // This is effectively peeking.
+            // If we want to stop processing, at say ':', we will simply bail and the next call to
+            // next() will proceed from there.
+            let cur = self.offset;
             let ch = self.data[cur];
-            self.advance();
-
-            loop {
-                // This is effectively peeking.
-                // If we want to stop processing, at say ':', we will simply bail and the next call to
-                // next() will proceed from there.
-                match ch {
-                    b'\n' => {
-                        // Done with this path. also switch modes.
-                        self.lexer_mode = LexerMode::Default;
-                        break;
-                    }
-                    b' ' => {
-                        // Done with this path.
-                        break;
-                    }
-                    b'|' => {
-                        todo!("Implicit outs/deps not supported!");
-                    }
-                    // Only expect to encounter this in `build` declarations.
-                    // The parser will take care if that does not happen.
-                    b':' => {
-                        // Separate from default because after reading the rule, we need to go back
-                        // to PathMode.
-                        self.lexer_mode = LexerMode::BuildRuleMode;
-                        break;
-                    }
-                    0 => {
-                        // EOF
-                        break;
-                    }
-                    b'$' => {
-                        lexemes.push(self.read_escape(cur)?);
-                        cur = self.offset;
-                    }
-                    _ => {
-                        lexemes.push(self.read_literal_for_path(cur)?);
-                        cur = self.offset;
-                    }
+            match ch {
+                b'\n' => {
+                    // Done with this path. also switch modes.
+                    self.lexer_mode = LexerMode::Default;
+                    break;
+                }
+                b' ' => {
+                    // Done with this path.
+                    break;
+                }
+                b'|' => {
+                    todo!("Implicit outs/deps not supported!");
+                }
+                // Only expect to encounter this in `build` declarations.
+                // The parser will take care if that does not happen.
+                b':' => {
+                    // Separate from default because after reading the rule, we need to go back
+                    // to PathMode.
+                    self.lexer_mode = LexerMode::BuildRuleMode;
+                    break;
+                }
+                0 => {
+                    // EOF
+                    break;
+                }
+                b'$' => {
+                    self.advance();
+                    lexemes.push(self.read_escape(cur)?);
+                }
+                _ => {
+                    self.advance();
+                    lexemes.push(self.read_literal_for_path(cur)?);
                 }
             }
         }
@@ -546,7 +541,7 @@ impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
         fmt.debug_struct("Lexer")
             .field("filename", &self.filename)
-            .field("ch", &self.ch)
+            .field("ch", &(self.ch as char))
             .field("offset", &self.offset)
             .field("next_offset", &self.next_offset)
             .field("lexer_mode", &self.lexer_mode)
