@@ -1,0 +1,4 @@
+rule echo
+  command = echo $out
+
+build a$:colon: echo $:ize

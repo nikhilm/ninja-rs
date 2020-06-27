@@ -188,15 +188,13 @@ impl<'a> Lexer<'a> {
         ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-'
     }
 
-    fn read_identifier(&mut self, pos: usize) -> Lexeme<'a> {
-        assert!(pos < self.data.len());
-        let span_start = pos;
-        let mut span_end = self.offset; // We've already been advanced and this is exclusive.
+    fn read_identifier(&mut self) -> Lexeme<'a> {
+        assert!(!self.done());
+        let span_start = self.offset;
         while Lexer::is_permitted_identifier_char(self.ch) {
-            span_end += 1;
             self.advance();
         }
-        Lexeme::Identifier(&self.data[span_start..span_end])
+        Lexeme::Identifier(&self.data[span_start..self.offset])
     }
 
     fn lookup_keyword(&mut self, ident: Lexeme<'a>) -> Lexeme<'a> {
@@ -230,6 +228,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn record_line(&mut self) {
+        assert_eq!(self.data[self.offset - 1], b'\n');
         self.line_offsets.push(self.offset);
     }
 
@@ -310,11 +309,16 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_comment(&mut self) -> Lexeme<'a> {
-        let start = self.offset - 1; // Includes the '#' in the comment.
-        let mut end = self.offset;
-        while !self.done() && self.ch != b'\n' {
-            end += 1;
+        assert_eq!(self.lexer_mode, LexerMode::Default);
+        assert_eq!(self.data[self.offset], b'#');
+        let start = self.offset; // Includes the '#' in the comment.
+        let mut end = self.offset + 1;
+        loop {
             self.advance();
+            if self.done() || self.ch == b'\n' {
+                break;
+            }
+            end += 1;
         }
         // If ended because of newline, make the newline a part of the comment and record a line.
         // This simplifies the parser because it doesn't have to remember to discard newlines every
@@ -332,26 +336,28 @@ impl<'a> Lexer<'a> {
      * Ninja lexing is context-sensitive. Sometimes we are reading keywords, sometimes identifiers,
      * sometimes paths and sometimes strings that can have escape sequences and '$'.
      */
-    fn read_literal_or_ident(&mut self, pos: usize) -> LexerResult<'a> {
-        assert!(pos < self.data.len());
-        let ch = self.data[pos];
+    fn read_literal_or_ident(&mut self) -> LexerResult<'a> {
+        assert!(!self.done());
+        let ch = self.data[self.offset];
         match &self.lexer_mode {
             LexerMode::Default | LexerMode::BuildRuleMode => {
                 if Lexer::is_permitted_identifier_char(ch) {
-                    let ident = self.read_identifier(pos);
+                    let ident = self.read_identifier();
                     if self.lexer_mode == LexerMode::BuildRuleMode {
                         self.lexer_mode = LexerMode::PathMode;
                     }
                     Ok(self.lookup_keyword(ident))
                 } else {
-                    Err(LexerError::NotAnIdentifier(Pos(pos), ch))
+                    // Need to consume so the lexer can make progress.
+                    self.advance();
+                    Err(LexerError::NotAnIdentifier(Pos(self.offset - 1), ch))
                 }
             }
             LexerMode::PathMode => {
                 // parse the next "space separated" filename, which can include escaped colons.
-                self.read_path(pos)
+                self.read_path()
             }
-            LexerMode::ValueMode => self.read_literal(pos),
+            LexerMode::ValueMode => self.read_literal(),
         }
     }
 
@@ -362,62 +368,63 @@ impl<'a> Lexer<'a> {
     // can know where to close a lexeme. but the current literal reader breaks on encountering a $
     // and read_escape breaks on encountering a '$\n', so that indents on newlines are correctly
     // handled as being part of the value, so we need to think about that too.
-    fn read_path(&mut self, pos: usize) -> LexerResult<'a> {
-        assert!(pos < self.data.len());
+    fn read_path(&mut self) -> LexerResult<'a> {
+        assert!(!self.done());
         debug_assert!(![b'|', b':', b'\n', b' ']
             .iter()
-            .any(|c| *c == self.data[pos]));
+            .any(|c| *c == self.data[self.offset]));
         // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
         // allocations are a problem and we want to avoid them in the common case of no special
         // characters in the path. Can also use smallvec.
         let mut lexemes = Vec::new();
-        match self.data[pos] {
+        match self.data[self.offset] {
             b'$' => {
-                lexemes.push(self.read_escape(pos)?);
+                lexemes.push(self.read_escape()?);
             }
             _ => {
-                lexemes.push(self.read_literal_for_path(pos)?);
+                lexemes.push(self.read_literal_for_path()?);
             }
         }
 
-        while !self.done() {
-            // This is effectively peeking.
-            // If we want to stop processing, at say ':', we will simply bail and the next call to
-            // next() will proceed from there.
-            let cur = self.offset;
-            let ch = self.data[cur];
-            match ch {
-                b'\n' => {
-                    // Done with this path. also switch modes.
-                    self.lexer_mode = LexerMode::Default;
-                    break;
-                }
-                b' ' => {
-                    // Done with this path.
-                    break;
-                }
-                b'|' => {
-                    todo!("Implicit outs/deps not supported!");
-                }
-                // Only expect to encounter this in `build` declarations.
-                // The parser will take care if that does not happen.
-                b':' => {
-                    // Separate from default because after reading the rule, we need to go back
-                    // to PathMode.
-                    self.lexer_mode = LexerMode::BuildRuleMode;
-                    break;
-                }
-                0 => {
-                    // EOF
-                    break;
-                }
-                b'$' => {
-                    self.advance();
-                    lexemes.push(self.read_escape(cur)?);
-                }
-                _ => {
-                    self.advance();
-                    lexemes.push(self.read_literal_for_path(cur)?);
+        // Did not encounter a newline.
+        if self.lexer_mode == LexerMode::PathMode {
+            while !self.done() {
+                // This is effectively peeking.
+                // If we want to stop processing, at say ':', we will simply bail and the next call to
+                // next() will proceed from there.
+                let cur = self.offset;
+                let ch = self.data[cur];
+                match ch {
+                    b'\n' | b'#' => {
+                        // Done with this path. also switch modes.
+                        self.lexer_mode = LexerMode::Default;
+                        break;
+                    }
+                    b' ' => {
+                        // Done with this path.
+                        break;
+                    }
+                    b'|' => {
+                        todo!("Implicit outs/deps not supported!");
+                    }
+                    // Only expect to encounter this in `build` declarations.
+                    // The parser will take care if that does not happen.
+                    b':' => {
+                        // Separate from default because after reading the rule, we need to go back
+                        // to PathMode.
+                        self.lexer_mode = LexerMode::BuildRuleMode;
+                        break;
+                    }
+                    0 => {
+                        // EOF
+                        break;
+                    }
+                    b'$' => {
+                        lexemes.push(self.read_escape()?);
+                    }
+                    _ => {
+                        lexemes.push(self.read_literal_for_path()?);
+                    }
                 }
             }
         }
@@ -427,13 +434,13 @@ impl<'a> Lexer<'a> {
 
     // TODO: Combine with read_literal.
     // Probably easier to have this one not assume one character has already been read.
-    fn read_literal_for_path(&mut self, pos: usize) -> LexerResult<'a> {
-        assert!(pos < self.data.len());
-        let start = pos;
-        let mut end = self.offset;
+    fn read_literal_for_path(&mut self) -> LexerResult<'a> {
+        assert_eq!(self.lexer_mode, LexerMode::PathMode);
+        assert!(!self.done());
+        let start = self.offset;
         loop {
             match self.ch {
-                b'$' | b' ' | b'|' | b':' => {
+                b'$' | b' ' | b'|' | b':' | b'#' => {
                     // Don't switch modes, since we don't know how to interpret this yet.
                     break;
                 }
@@ -443,23 +450,62 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 _ => {
-                    end += 1;
                     if self.advance().is_none() {
                         break;
                     }
                 }
             }
         }
-        Ok(Lexeme::Literal(&self.data[start..end]))
+        Ok(Lexeme::Literal(&self.data[start..self.offset]))
     }
 
-    fn read_literal(&mut self, pos: usize) -> LexerResult<'a> {
-        assert!(pos < self.data.len());
-        let start = pos;
-        let mut end = self.offset;
+    fn read_literal(&mut self) -> LexerResult<'a> {
+        assert_eq!(self.lexer_mode, LexerMode::ValueMode);
+        assert!(!self.done());
+        let mut lexemes = Vec::new();
+        match self.data[self.offset] {
+            b'$' => {
+                lexemes.push(self.read_escape()?);
+            }
+            _ => {
+                lexemes.push(self.read_literal_for_value()?);
+            }
+        }
+        // Did not encounter a newline.
+        if self.lexer_mode == LexerMode::ValueMode {
+            while !self.done() {
+                let cur = self.offset;
+                let ch = self.data[cur];
+                match ch {
+                    b'\n' | b'#' => {
+                        // Done with this value. also switch modes.
+                        self.lexer_mode = LexerMode::Default;
+                        break;
+                    }
+                    0 => {
+                        // EOF
+                        break;
+                    }
+                    b'$' => {
+                        lexemes.push(self.read_escape()?);
+                    }
+                    _ => {
+                        lexemes.push(self.read_literal_for_value()?);
+                    }
+                }
+            }
+        }
+
+        Ok(Lexeme::Expr(lexemes))
+    }
+
+    fn read_literal_for_value(&mut self) -> LexerResult<'a> {
+        assert_eq!(self.lexer_mode, LexerMode::ValueMode);
+        assert!(!self.done());
+        let start = self.offset;
         loop {
             match self.ch {
-                b'$' => {
+                b'$' | b'#' => {
                     // Don't switch modes, since we don't know how to interpret this yet.
                     break;
                 }
@@ -469,20 +515,19 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 _ => {
-                    end += 1;
                     if self.advance().is_none() {
                         break;
                     }
                 }
             }
         }
-        Ok(Lexeme::Literal(&self.data[start..end]))
+        Ok(Lexeme::Literal(&self.data[start..self.offset]))
     }
 
-    fn read_escape(&mut self, pos: usize) -> LexerResult<'a> {
-        assert!(pos < self.data.len());
-        assert_eq!(self.data[pos], b'$');
-        assert_eq!(pos + 1, self.offset);
+    fn read_escape(&mut self) -> LexerResult<'a> {
+        assert!(!self.done());
+        assert_eq!(self.data[self.offset], b'$');
+        self.advance();
 
         let mut record_line = false;
         let result = match self.ch {
@@ -497,33 +542,30 @@ impl<'a> Lexer<'a> {
             }
             b'{' => {
                 let pos = self.offset;
-                if self.advance().is_none() {
-                    return Err(LexerError::UnexpectedEof(Pos(pos)));
-                }
-                // This and the next if is kinda ugly.
-                if !Lexer::is_permitted_identifier_char(self.ch) {
-                    return Err(LexerError::NotAnIdentifier(Pos(self.offset), self.ch));
-                }
+                if self.advance().is_some() {
+                    // This and the next if is kinda ugly.
+                    if Lexer::is_permitted_identifier_char(self.ch) {
+                        let ident = self.read_identifier();
 
-                let pos = self.offset;
-                self.advance();
-                let ident = self.read_identifier(pos);
-
-                if self.done() {
-                    return Err(LexerError::UnexpectedEof(Pos(self.offset - 1)));
-                } else if self.ch != b'}' {
-                    return Err(LexerError::MissingParen(Pos(self.offset)));
+                        if self.done() {
+                            Err(LexerError::UnexpectedEof(Pos(self.offset - 1)))
+                        } else if self.ch != b'}' {
+                            Err(LexerError::MissingParen(Pos(self.offset)))
+                        } else {
+                            Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
+                        }
+                    } else {
+                        Err(LexerError::NotAnIdentifier(Pos(self.offset), self.ch))
+                    }
+                } else {
+                    Err(LexerError::UnexpectedEof(Pos(pos)))
                 }
-
-                Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
             }
+            0 => Err(LexerError::UnexpectedEof(Pos(self.offset - 1))),
             _ if Lexer::is_permitted_identifier_char(self.ch) => {
-                let pos = self.offset;
-                self.advance();
-                let ident = self.read_identifier(pos);
+                let ident = self.read_identifier();
                 Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
             }
-            0 => Err(LexerError::UnexpectedEof(Pos(pos))),
             _ => Err(LexerError::IllegalCharacter(Pos(self.offset), self.ch)),
         };
         // Advance either way so the rest of the lexer can continue;
@@ -532,6 +574,8 @@ impl<'a> Lexer<'a> {
         // order as next() and incorporates those invariants. TODO: Possible to assert?
         if record_line {
             self.record_line();
+            // Also skip all whitespace.
+            self.skip_horizontal_whitespace();
         }
         result
     }
@@ -584,6 +628,7 @@ impl<'a> Iterator for Lexer<'a> {
             let pos = Pos(self.offset);
             let ch = self.ch;
 
+            // This comment may no longer be true.
             // Need to check the mode because an escape sequence can send the lexer back here, but
             // in that case any whitespace right after the escape should be part of the next
             // literal, not thrown away. But then there is also the complication of "all whitespace
@@ -619,24 +664,28 @@ impl<'a> Iterator for Lexer<'a> {
                 }
             }
 
-            // Always make progress.
-            let next = self.advance();
             return match ch {
                 // TODO: Windows line ending support.
                 // Also not sure if yielding a newline token in the general case really makes
                 // sense. Ninja is sensitive about that only in certain cases.
                 b'\n' => {
+                    self.advance();
                     self.record_line();
                     self.lexer_mode = LexerMode::Default;
                     Some(Ok((Lexeme::Newline, pos)))
                 }
                 b'=' => {
+                    self.advance();
                     self.skip_horizontal_whitespace();
                     self.lexer_mode = LexerMode::ValueMode;
                     Some(Ok((Lexeme::Equals, pos)))
                 }
-                b':' => Some(Ok((Lexeme::Colon, pos))),
+                b':' => {
+                    self.advance();
+                    Some(Ok((Lexeme::Colon, pos)))
+                }
                 b'|' => {
+                    let next = self.advance();
                     if let Some(c) = next {
                         if c == b'|' {
                             self.advance();
@@ -648,11 +697,8 @@ impl<'a> Iterator for Lexer<'a> {
                         Some(Ok((Lexeme::Pipe, pos)))
                     }
                 }
-                b'$' => Some(self.read_escape(pos.0).map(|x| (x, pos))),
-                // Ninja only allows comments on newlines, so the other modes treat this as a
-                // literal. we may want a warning or something.
                 b'#' => Some(Ok((self.read_comment(), pos))),
-                _ => Some(self.read_literal_or_ident(pos.0).map(|x| (x, pos))),
+                _ => Some(self.read_literal_or_ident().map(|x| (x, pos))),
             };
         }
     }
@@ -815,7 +861,7 @@ pool useful # another comment
                 Lexeme::Indent,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
-                Lexeme::Literal(b"gcc"),
+                Lexeme::Expr(vec![Lexeme::Literal(b"gcc")]),
             ]
         );
     }
@@ -859,7 +905,7 @@ build next: touch"#,
                 Lexeme::Indent,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
-                Lexeme::Literal(b"touch no_inputs.txt"),
+                Lexeme::Expr(vec![Lexeme::Literal(b"touch no_inputs.txt")]),
                 Lexeme::Newline,
                 Lexeme::Newline,
                 Lexeme::Build,
@@ -877,7 +923,7 @@ build next: touch"#,
 
     #[test]
     fn test_escape_in_illegal_pos() {
-        let res = parse_and_slice_no_error(
+        let res = parse_and_slice(
             r#"rule c$ c
             command = touch"#,
         );
@@ -885,16 +931,18 @@ build next: touch"#,
         assert_eq!(
             res,
             &[
-                Lexeme::Rule,
-                Lexeme::Identifier(b"c"),
-                Lexeme::Escape(b" "),
-                Lexeme::Identifier(b"c"),
-                Lexeme::Newline,
-                Lexeme::Indent,
-                Lexeme::Identifier(b"command"),
-                Lexeme::Equals,
-                Lexeme::Literal(b"touch")
-            ]
+                Ok(Lexeme::Rule),
+                Ok(Lexeme::Identifier(&[99])),
+                Err(LexerError::NotAnIdentifier(Pos(6), 36)),
+                Ok(Lexeme::Identifier(&[99])),
+                Ok(Lexeme::Newline),
+                Ok(Lexeme::Indent),
+                Ok(Lexeme::Identifier(&[99, 111, 109, 109, 97, 110, 100])),
+                Ok(Lexeme::Equals),
+                Ok(Lexeme::Expr(vec![Lexeme::Literal(&[
+                    116, 111, 117, 99, 104
+                ])]))
+            ],
         );
     }
 
@@ -914,9 +962,11 @@ ef"#,
                 Lexeme::Indent,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
-                Lexeme::Literal(b"abcd"),
-                Lexeme::Escape(b""),
-                Lexeme::Literal(b"ef"),
+                Lexeme::Expr(vec![
+                    Lexeme::Literal(b"abcd"),
+                    Lexeme::Escape(b""),
+                    Lexeme::Literal(b"ef"),
+                ]),
             ]
         );
 
@@ -935,8 +985,7 @@ rule"#,
                 Lexeme::Indent,
                 Lexeme::Identifier(b"command"),
                 Lexeme::Equals,
-                Lexeme::Literal(b"abcd"),
-                Lexeme::Escape(b""),
+                Lexeme::Expr(vec![Lexeme::Literal(b"abcd"), Lexeme::Escape(b""),]),
                 Lexeme::Newline,
                 Lexeme::Rule,
             ]
@@ -957,7 +1006,6 @@ rule"#,
                 Ok(Lexeme::Indent),
                 Ok(Lexeme::Identifier(b"command")),
                 Ok(Lexeme::Equals),
-                Ok(Lexeme::Literal(b"abcd")),
                 Err(LexerError::UnexpectedEof(Pos(input.len() - 1))),
             ]
         );
@@ -974,7 +1022,6 @@ rule"#,
                 Ok(Lexeme::Indent),
                 Ok(Lexeme::Identifier(b"command")),
                 Ok(Lexeme::Equals),
-                Ok(Lexeme::Literal(b"abcd")),
                 Err(LexerError::UnexpectedEof(Pos(input.len() - 1))),
             ]
         );

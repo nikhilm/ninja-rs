@@ -160,60 +160,17 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_value(&mut self) -> Result<Expr<'a>, ParseError> {
-        // The newline is consumed, which is OK.
-        // Can be done more succinctly using map_while, which is a nightly API.
-        #[derive(Debug)]
-        enum ErrorShim<'b> {
-            LexerError(LexerError),
-            UnexpectedLexeme(Lexeme<'b>, lexer::Pos),
-        }
-        let mut latest_pos = None;
-        let terms: Result<Vec<Term>, ErrorShim> = (&mut self.lexer)
-            .take_while(|res| {
-                if let Ok((lexeme, pos)) = res {
-                    latest_pos = Some(*pos);
-                    !matches!(lexeme, Lexeme::Newline) && !matches!(lexeme, Lexeme::Comment(_))
-                } else {
-                    // Errors are "accepted" by take_while so that they show up in the terms and
-                    // affect the result.
-                    true
-                }
-            })
-            .map(|res| {
-                if let Ok((lexeme, pos)) = res {
-                    match lexeme {
-                        Lexeme::Escape(v) | Lexeme::Literal(v) => Ok(Term::Literal(v)),
-                        Lexeme::VarRef(_, v) => Ok(Term::Reference(v)),
-                        _ => Err(ErrorShim::UnexpectedLexeme(lexeme, pos)),
-                    }
-                } else {
-                    Err(ErrorShim::LexerError(res.unwrap_err()))
-                }
-            })
-            .collect();
-        terms
-            .map_err(|e| match e {
-                ErrorShim::UnexpectedLexeme(lexeme, pos) => ParseError::new(
-                    format!(
-                        "Expected literal, escape or variable reference. Found {}",
-                        lexeme
-                    ),
-                    pos,
-                    &self.lexer,
-                ),
-                ErrorShim::LexerError(e) => ParseError::from_lexer_error(e, &self.lexer),
-            })
-            .and_then(|terms| {
-                if terms.is_empty() {
-                    // we will either have seen at least one token in the consume, so that latest_pos
-                    // is initialized, or the lexer is done, and last_pos will return successfully.
-                    let pos = latest_pos.unwrap_or_else(|| self.lexer.last_pos());
-                    Err(ParseError::new("Expected value", pos, &self.lexer))
-                } else {
-                    Ok(Expr(terms))
-                }
-            })
-        // TODO: Strip whitespace of the first literal if any.
+        self.handle_eof_and_comments("value").and_then(|res| {
+            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
+                .and_then(|(token, pos)| match token {
+                    Lexeme::Expr(_) => Ok(Parser::expr_to_expr(token)),
+                    _ => Err(ParseError::new(
+                        format!("Expected value, got {}", token),
+                        pos,
+                        &self.lexer,
+                    )),
+                })
+        })
     }
 
     fn discard_indent(&mut self) -> Result<(), ParseError> {
@@ -431,7 +388,6 @@ build foo.o: cc foo.c"#;
         for (input, expected_col) in &[("rule cc:", 8), ("rule", 5), ("rule\n", 5)] {
             let parser = Parser::new(input.as_bytes(), None);
             let err = parser.parse().unwrap_err();
-            eprintln!("{:?}", input);
             assert_eq!(err.position.line, 1);
             assert_eq!(err.position.column, *expected_col);
         }
@@ -502,7 +458,6 @@ rule touch
                 input
             );
             let parser = Parser::new(with_rule.as_bytes(), None);
-            eprintln!("{:?}", with_rule);
             let ast = parser.parse().expect("valid parse");
             assert_debug_snapshot!(ast);
         }

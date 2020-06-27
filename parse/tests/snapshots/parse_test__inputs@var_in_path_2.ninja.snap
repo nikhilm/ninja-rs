@@ -1,0 +1,90 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/inputs/var_in_path_2.ninja
+---
+Description {
+    rules: [
+        Rule {
+            name: [
+                101,
+                99,
+                104,
+                111,
+            ],
+            command: Expr(
+                [
+                    Literal(
+                        [
+                            101,
+                            99,
+                            104,
+                            111,
+                            32,
+                        ],
+                    ),
+                    Reference(
+                        [
+                            111,
+                            117,
+                            116,
+                        ],
+                    ),
+                ],
+            ),
+        },
+    ],
+    builds: [
+        Build {
+            rule: [
+                101,
+                99,
+                104,
+                111,
+            ],
+            inputs: [
+                Expr(
+                    [
+                        Literal(
+                            [
+                                58,
+                            ],
+                        ),
+                        Literal(
+                            [
+                                105,
+                                122,
+                                101,
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+            outputs: [
+                Expr(
+                    [
+                        Literal(
+                            [
+                                97,
+                            ],
+                        ),
+                        Literal(
+                            [
+                                58,
+                            ],
+                        ),
+                        Literal(
+                            [
+                                99,
+                                111,
+                                108,
+                                111,
+                                110,
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        },
+    ],
+}
