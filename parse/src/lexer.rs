@@ -142,7 +142,7 @@ type LexerResult<'a> = Result<Lexeme<'a>, LexerError>;
 pub struct Lexer<'a> {
     data: &'a [u8],
     filename: Option<String>,
-    ch: u8,
+    ch: Option<u8>,
     offset: usize,
     next_offset: usize,
     // consider using `smallvec` later.
@@ -152,7 +152,11 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(data: &'a [u8], filename: Option<String>) -> Lexer<'a> {
-        let ch = if !data.is_empty() { data[0] } else { 0 };
+        let ch = if !data.is_empty() {
+            Some(data[0])
+        } else {
+            None
+        };
         Lexer {
             data,
             filename,
@@ -179,7 +183,14 @@ impl<'a> Lexer<'a> {
     */
 
     fn skip_horizontal_whitespace(&mut self) {
-        while self.ch == b' ' || self.ch == b'\t' {
+        loop {
+            if self.ch.is_none() {
+                break;
+            }
+            let ch = self.ch.unwrap();
+            if ch != b' ' && ch != b'\t' {
+                break;
+            }
             self.advance();
         }
     }
@@ -191,7 +202,7 @@ impl<'a> Lexer<'a> {
     fn read_identifier(&mut self) -> Lexeme<'a> {
         assert!(!self.done());
         let span_start = self.offset;
-        while Lexer::is_permitted_identifier_char(self.ch) {
+        while !self.done() && Lexer::is_permitted_identifier_char(self.ch.unwrap()) {
             self.advance();
         }
         Lexeme::Identifier(&self.data[span_start..self.offset])
@@ -236,15 +247,13 @@ impl<'a> Lexer<'a> {
         // This exists to make sure we do not set next_offset to 1 on the very first read.
         if self.next_offset < self.data.len() {
             self.offset = self.next_offset;
-            self.ch = self.data[self.next_offset];
+            self.ch = Some(self.data[self.next_offset]);
             self.next_offset += 1;
-            Some(self.ch)
         } else {
             self.offset = self.data.len();
-            // TODO: Make self.ch unrepresentable.
-            self.ch = 0;
-            None
+            self.ch = None;
         }
+        self.ch
     }
 
     fn done(&self) -> bool {
@@ -309,13 +318,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_comment(&mut self) -> Lexeme<'a> {
+        assert!(!self.done());
+        assert_eq!(self.ch.unwrap(), b'#');
         assert_eq!(self.lexer_mode, LexerMode::Default);
-        assert_eq!(self.data[self.offset], b'#');
         let start = self.offset; // Includes the '#' in the comment.
         let mut end = self.offset + 1;
         loop {
-            self.advance();
-            if self.done() || self.ch == b'\n' {
+            let ch = self.advance();
+            if ch.is_none() || self.ch.unwrap() == b'\n' {
                 break;
             }
             end += 1;
@@ -323,7 +333,7 @@ impl<'a> Lexer<'a> {
         // If ended because of newline, make the newline a part of the comment and record a line.
         // This simplifies the parser because it doesn't have to remember to discard newlines every
         // time it sees a comment.
-        if self.ch == b'\n' {
+        if self.ch == Some(b'\n') {
             end += 1;
             // Order of these 2 calls is important to match what next() does when recording a line.
             self.advance();
@@ -338,7 +348,7 @@ impl<'a> Lexer<'a> {
      */
     fn read_literal_or_ident(&mut self) -> LexerResult<'a> {
         assert!(!self.done());
-        let ch = self.data[self.offset];
+        let ch = self.ch.unwrap();
         match &self.lexer_mode {
             LexerMode::Default | LexerMode::BuildRuleMode => {
                 if Lexer::is_permitted_identifier_char(ch) {
@@ -372,12 +382,12 @@ impl<'a> Lexer<'a> {
         assert!(!self.done());
         debug_assert!(![b'|', b':', b'\n', b' ']
             .iter()
-            .any(|c| *c == self.data[self.offset]));
+            .any(|c| *c == self.ch.unwrap()));
         // TODO: Not difficult to optimize for having an expr vs literal matcher in the parser if
         // allocations are a problem and we want to avoid them in the common case of no special
         // characters in the path. Can also use smallvec.
         let mut lexemes = Vec::new();
-        match self.data[self.offset] {
+        match self.ch.unwrap() {
             b'$' => {
                 lexemes.push(self.read_escape()?);
             }
@@ -392,8 +402,7 @@ impl<'a> Lexer<'a> {
                 // This is effectively peeking.
                 // If we want to stop processing, at say ':', we will simply bail and the next call to
                 // next() will proceed from there.
-                let cur = self.offset;
-                let ch = self.data[cur];
+                let ch = self.ch.unwrap();
                 match ch {
                     b'\n' | b'#' => {
                         // Done with this path. also switch modes.
@@ -415,10 +424,6 @@ impl<'a> Lexer<'a> {
                         self.lexer_mode = LexerMode::BuildRuleMode;
                         break;
                     }
-                    0 => {
-                        // EOF
-                        break;
-                    }
                     b'$' => {
                         lexemes.push(self.read_escape()?);
                     }
@@ -437,7 +442,8 @@ impl<'a> Lexer<'a> {
         assert!(self.lexer_mode == LexerMode::PathMode || self.lexer_mode == LexerMode::ValueMode);
         let start = self.offset;
         loop {
-            match self.ch {
+            let ch = self.ch.unwrap();
+            match ch {
                 b'$' | b'#' => {
                     // Don't switch modes, since we don't know how to interpret this yet.
                     break;
@@ -448,7 +454,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 _ => {
-                    let not_allowed_in_path = match self.ch {
+                    let not_allowed_in_path = match ch {
                         b' ' | b'|' | b':' => true,
                         _ => false,
                     };
@@ -469,7 +475,7 @@ impl<'a> Lexer<'a> {
         assert_eq!(self.lexer_mode, LexerMode::ValueMode);
         assert!(!self.done());
         let mut lexemes = Vec::new();
-        match self.data[self.offset] {
+        match self.ch.unwrap() {
             b'$' => {
                 lexemes.push(self.read_escape()?);
             }
@@ -480,16 +486,11 @@ impl<'a> Lexer<'a> {
         // Did not encounter a newline.
         if self.lexer_mode == LexerMode::ValueMode {
             while !self.done() {
-                let cur = self.offset;
-                let ch = self.data[cur];
+                let ch = self.ch.unwrap();
                 match ch {
                     b'\n' | b'#' => {
                         // Done with this value. also switch modes.
                         self.lexer_mode = LexerMode::Default;
-                        break;
-                    }
-                    0 => {
-                        // EOF
                         break;
                     }
                     b'$' => {
@@ -507,11 +508,15 @@ impl<'a> Lexer<'a> {
 
     fn read_escape(&mut self) -> LexerResult<'a> {
         assert!(!self.done());
-        assert_eq!(self.data[self.offset], b'$');
-        self.advance();
+        assert_eq!(self.ch.unwrap(), b'$');
+        let ch = self.advance();
+        if ch.is_none() {
+            return Err(LexerError::UnexpectedEof(Pos(self.offset - 1)));
+        }
 
+        let ch = self.ch.unwrap();
         let mut record_line = false;
-        let result = match self.ch {
+        let result = match ch {
             b'\n' => {
                 record_line = true;
                 // Unlike other escapes, this does not yield the newline. It throws it away without
@@ -524,35 +529,35 @@ impl<'a> Lexer<'a> {
             b'{' => {
                 let pos = self.offset;
                 if self.advance().is_some() {
+                    let ch = self.ch.unwrap();
                     // This and the next if is kinda ugly.
-                    if Lexer::is_permitted_identifier_char(self.ch) {
+                    if Lexer::is_permitted_identifier_char(ch) {
                         let ident = self.read_identifier();
 
                         if self.done() {
                             Err(LexerError::UnexpectedEof(Pos(self.offset - 1)))
-                        } else if self.ch != b'}' {
+                        } else if self.ch.unwrap() != b'}' {
                             Err(LexerError::MissingParen(Pos(self.offset)))
                         } else {
                             Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
                         }
                     } else {
-                        Err(LexerError::NotAnIdentifier(Pos(self.offset), self.ch))
+                        Err(LexerError::NotAnIdentifier(Pos(self.offset), ch))
                     }
                 } else {
                     Err(LexerError::UnexpectedEof(Pos(pos)))
                 }
             }
-            0 => Err(LexerError::UnexpectedEof(Pos(self.offset - 1))),
-            _ if Lexer::is_permitted_identifier_char(self.ch) => {
+            _ if Lexer::is_permitted_identifier_char(ch) => {
                 let ident = self.read_identifier();
                 Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
             }
-            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), self.ch)),
+            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), ch)),
         };
         // Advance either way so the rest of the lexer can continue;
         self.advance();
         // The order of recording the line after advancing is important. It preserves the same
-        // order as next() and incorporates those invariants. TODO: Possible to assert?
+        // order as next() and incorporates those invariants.
         if record_line {
             self.record_line();
             // Also skip all whitespace.
@@ -566,7 +571,7 @@ impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
         fmt.debug_struct("Lexer")
             .field("filename", &self.filename)
-            .field("ch", &(self.ch as char))
+            .field("ch", &(self.ch.map(|c| c as char)))
             .field("offset", &self.offset)
             .field("next_offset", &self.next_offset)
             .field("lexer_mode", &self.lexer_mode)
@@ -607,7 +612,7 @@ impl<'a> Iterator for Lexer<'a> {
             }
 
             let pos = Pos(self.offset);
-            let ch = self.ch;
+            let ch = self.ch.unwrap();
 
             // This comment may no longer be true.
             // Need to check the mode because an escape sequence can send the lexer back here, but

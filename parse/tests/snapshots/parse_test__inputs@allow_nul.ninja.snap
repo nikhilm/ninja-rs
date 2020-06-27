@@ -1,0 +1,38 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/inputs/allow_nul.ninja
+---
+Description {
+    rules: [
+        Rule {
+            name: [
+                101,
+                99,
+                104,
+                111,
+            ],
+            command: Expr(
+                [
+                    Reference(
+                        [
+                            98,
+                            97,
+                            114,
+                        ],
+                    ),
+                    Literal(
+                        [
+                            0,
+                            32,
+                            102,
+                            111,
+                            111,
+                        ],
+                    ),
+                ],
+            ),
+        },
+    ],
+    builds: [],
+}
