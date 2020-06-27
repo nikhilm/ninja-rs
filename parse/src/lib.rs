@@ -44,7 +44,7 @@ impl ParseError {
             LexerError::NotAnIdentifier(pos, _ch) => {
                 ParseError::new("Expected identifier", pos, lexer)
             }
-            LexerError::MissingParen(pos) => {
+            LexerError::MissingBrace(pos) => {
                 ParseError::new("Expected closing parentheses '}'", pos, lexer)
             }
         }

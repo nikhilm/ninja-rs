@@ -134,7 +134,7 @@ pub enum LexerError {
     #[error("Expected identifier ([a-zA-Z_-])")]
     NotAnIdentifier(Pos, u8),
     #[error("Missing closing paren '}}'")]
-    MissingParen(Pos),
+    MissingBrace(Pos),
 }
 
 type LexerResult<'a> = Result<Lexeme<'a>, LexerError>;
@@ -487,6 +487,7 @@ impl<'a> Lexer<'a> {
         if self.lexer_mode == LexerMode::ValueMode {
             while !self.done() {
                 let ch = self.ch.unwrap();
+                eprintln!("CHAR IS {}", ch as char);
                 match ch {
                     b'\n' | b'#' => {
                         // Done with this value. also switch modes.
@@ -515,21 +516,26 @@ impl<'a> Lexer<'a> {
         }
 
         let ch = self.ch.unwrap();
-        let mut record_line = false;
-        let result = match ch {
+        match ch {
             b'\n' => {
-                record_line = true;
+                let ret = Ok(Lexeme::Escape(&self.data[self.offset..self.offset]));
+                // The order of recording the line after advancing is important. It preserves the same
+                // order as next() and incorporates those invariants.
+                self.advance();
+                self.record_line();
+                // Also skip all whitespace.
+                self.skip_horizontal_whitespace();
                 // Unlike other escapes, this does not yield the newline. It throws it away without
                 // breaking whatever mode we are currently in.
-                Ok(Lexeme::Escape(&self.data[self.offset..self.offset]))
+                ret
             }
             b' ' | b'\r' | b'$' | b':' => {
-                Ok(Lexeme::Escape(&self.data[self.offset..self.offset + 1]))
+                self.advance();
+                Ok(Lexeme::Escape(&self.data[self.offset - 1..self.offset]))
             }
             b'{' => {
                 let pos = self.offset;
-                if self.advance().is_some() {
-                    let ch = self.ch.unwrap();
+                if let Some(ch) = self.advance() {
                     // This and the next if is kinda ugly.
                     if Lexer::is_permitted_identifier_char(ch) {
                         let ident = self.read_identifier();
@@ -537,8 +543,10 @@ impl<'a> Lexer<'a> {
                         if self.done() {
                             Err(LexerError::UnexpectedEof(Pos(self.offset - 1)))
                         } else if self.ch.unwrap() != b'}' {
-                            Err(LexerError::MissingParen(Pos(self.offset)))
+                            Err(LexerError::MissingBrace(Pos(self.offset)))
                         } else {
+                            // Move past closing brace.
+                            self.advance();
                             Ok(Lexeme::VarRef(VarRefType::WithParens, ident.value()))
                         }
                     } else {
@@ -552,18 +560,12 @@ impl<'a> Lexer<'a> {
                 let ident = self.read_identifier();
                 Ok(Lexeme::VarRef(VarRefType::WithoutParens, ident.value()))
             }
-            _ => Err(LexerError::IllegalCharacter(Pos(self.offset), ch)),
-        };
-        // Advance either way so the rest of the lexer can continue;
-        self.advance();
-        // The order of recording the line after advancing is important. It preserves the same
-        // order as next() and incorporates those invariants.
-        if record_line {
-            self.record_line();
-            // Also skip all whitespace.
-            self.skip_horizontal_whitespace();
+            _ => {
+                // Skip over the illegal character.
+                self.advance();
+                Err(LexerError::IllegalCharacter(Pos(self.offset - 1), ch))
+            }
         }
-        result
     }
 }
 
@@ -692,7 +694,7 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::{Lexeme, Lexer, LexerError, Pos, Position};
+    use super::{Lexeme, Lexer, LexerError, Pos, Position, VarRefType};
     // This may be a good place to use the `insta` crate, but possibly overkill as well.
 
     fn parse_and_slice(input: &str) -> Vec<Result<Lexeme, LexerError>> {
@@ -1014,9 +1016,46 @@ rule"#,
     }
 
     #[test]
-    #[should_panic]
     fn test_escape_varrefs() {
-        todo!();
+        let tests = [
+            (r#"a = b"#, Lexeme::Expr(vec![Lexeme::Literal(b"b")])),
+            (
+                r#"a = ${b}"#,
+                Lexeme::Expr(vec![Lexeme::VarRef(VarRefType::WithParens, b"b")]),
+            ),
+            (
+                r#"a = $b"#,
+                Lexeme::Expr(vec![Lexeme::VarRef(VarRefType::WithoutParens, b"b")]),
+            ),
+            (
+                r#"a = $b${baseball}$c"#,
+                Lexeme::Expr(vec![
+                    Lexeme::VarRef(VarRefType::WithoutParens, b"b"),
+                    Lexeme::VarRef(VarRefType::WithParens, b"baseball"),
+                    Lexeme::VarRef(VarRefType::WithoutParens, b"c"),
+                ]),
+            ),
+            (
+                r#"a = ${baseball}$carpet$goofer"#,
+                Lexeme::Expr(vec![
+                    Lexeme::VarRef(VarRefType::WithParens, b"baseball"),
+                    Lexeme::VarRef(VarRefType::WithoutParens, b"carpet"),
+                    Lexeme::VarRef(VarRefType::WithoutParens, b"goofer"),
+                ]),
+            ),
+        ];
+
+        for (input, expected) in &tests {
+            let res = parse_and_slice(input);
+            assert_eq!(res.len(), 3);
+            assert_eq!(
+                &res[..2],
+                &[Ok(Lexeme::Identifier(b"a")), Ok(Lexeme::Equals)]
+            );
+            dbg!(input);
+            let actual = res[2].as_ref().expect("valid lexeme");
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
