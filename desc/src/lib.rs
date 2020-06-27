@@ -1,4 +1,4 @@
-use ninja_parse::ast as past;
+use ninja_parse::{ast as past, Env};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     str::Utf8Error,
@@ -56,8 +56,11 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
     let mut builds = Vec::with_capacity(past.builds.len());
     for build in past.builds {
         let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
+        // TODO: Use the environment in scope.
+        let empty_env = Env::default();
+
         for output in &build.outputs {
-            let output = output.eval();
+            let output = output.eval(&empty_env);
             if outputs_seen.contains(&output) {
                 // TODO: Also add line/col information from token position, which isn't being preserved
                 // right now!
@@ -69,6 +72,11 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
             evaluated_outputs.push(output);
         }
 
+        let evaluated_inputs = build.inputs.iter().map(|i| i.eval(&empty_env)).collect();
+
+        let mut env = Env::default();
+        env.add_binding("out".to_owned(), evaluated_outputs.clone());
+
         let action = {
             match build.rule {
                 [112, 104, 111, 110, 121] => Action::Phony,
@@ -79,13 +87,13 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
                             std::str::from_utf8(other)?.to_owned(),
                         ));
                     }
-                    Action::Command(String::from_utf8(rule.unwrap().command.eval())?)
+                    Action::Command(String::from_utf8(rule.unwrap().command.eval(&env))?)
                 }
             }
         };
         builds.push(Build {
             action,
-            inputs: build.inputs.iter().map(|i| i.eval()).collect(),
+            inputs: evaluated_inputs,
             outputs: evaluated_outputs,
         })
     }

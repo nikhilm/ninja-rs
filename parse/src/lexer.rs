@@ -487,7 +487,6 @@ impl<'a> Lexer<'a> {
         if self.lexer_mode == LexerMode::ValueMode {
             while !self.done() {
                 let ch = self.ch.unwrap();
-                eprintln!("CHAR IS {}", ch as char);
                 match ch {
                     b'\n' | b'#' => {
                         // Done with this value. also switch modes.

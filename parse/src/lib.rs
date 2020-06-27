@@ -5,9 +5,11 @@ use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
 pub mod ast;
+pub mod env;
 mod lexer;
 
 use ast::*;
+pub use env::Env;
 use lexer::{Lexeme, Lexer, LexerError, Position};
 
 #[derive(Debug, Error)]
