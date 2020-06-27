@@ -382,7 +382,7 @@ impl<'a> Lexer<'a> {
                 lexemes.push(self.read_escape()?);
             }
             _ => {
-                lexemes.push(self.read_literal_for_path()?);
+                lexemes.push(self.read_literal_common()?);
             }
         }
 
@@ -423,7 +423,7 @@ impl<'a> Lexer<'a> {
                         lexemes.push(self.read_escape()?);
                     }
                     _ => {
-                        lexemes.push(self.read_literal_for_path()?);
+                        lexemes.push(self.read_literal_common()?);
                     }
                 }
             }
@@ -432,15 +432,13 @@ impl<'a> Lexer<'a> {
         Ok(Lexeme::Expr(lexemes))
     }
 
-    // TODO: Combine with read_literal.
-    // Probably easier to have this one not assume one character has already been read.
-    fn read_literal_for_path(&mut self) -> LexerResult<'a> {
-        assert_eq!(self.lexer_mode, LexerMode::PathMode);
+    fn read_literal_common(&mut self) -> LexerResult<'a> {
         assert!(!self.done());
+        assert!(self.lexer_mode == LexerMode::PathMode || self.lexer_mode == LexerMode::ValueMode);
         let start = self.offset;
         loop {
             match self.ch {
-                b'$' | b' ' | b'|' | b':' | b'#' => {
+                b'$' | b'#' => {
                     // Don't switch modes, since we don't know how to interpret this yet.
                     break;
                 }
@@ -450,6 +448,14 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 _ => {
+                    let not_allowed_in_path = match self.ch {
+                        b' ' | b'|' | b':' => true,
+                        _ => false,
+                    };
+                    if self.lexer_mode == LexerMode::PathMode && not_allowed_in_path {
+                        // Don't switch modes, since we don't know how to interpret this yet.
+                        break;
+                    }
                     if self.advance().is_none() {
                         break;
                     }
@@ -468,7 +474,7 @@ impl<'a> Lexer<'a> {
                 lexemes.push(self.read_escape()?);
             }
             _ => {
-                lexemes.push(self.read_literal_for_value()?);
+                lexemes.push(self.read_literal_common()?);
             }
         }
         // Did not encounter a newline.
@@ -490,38 +496,13 @@ impl<'a> Lexer<'a> {
                         lexemes.push(self.read_escape()?);
                     }
                     _ => {
-                        lexemes.push(self.read_literal_for_value()?);
+                        lexemes.push(self.read_literal_common()?);
                     }
                 }
             }
         }
 
         Ok(Lexeme::Expr(lexemes))
-    }
-
-    fn read_literal_for_value(&mut self) -> LexerResult<'a> {
-        assert_eq!(self.lexer_mode, LexerMode::ValueMode);
-        assert!(!self.done());
-        let start = self.offset;
-        loop {
-            match self.ch {
-                b'$' | b'#' => {
-                    // Don't switch modes, since we don't know how to interpret this yet.
-                    break;
-                }
-                b'\n' => {
-                    // Done with this literal. also switch modes.
-                    self.lexer_mode = LexerMode::Default;
-                    break;
-                }
-                _ => {
-                    if self.advance().is_none() {
-                        break;
-                    }
-                }
-            }
-        }
-        Ok(Lexeme::Literal(&self.data[start..self.offset]))
     }
 
     fn read_escape(&mut self) -> LexerResult<'a> {
