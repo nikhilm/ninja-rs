@@ -1,5 +1,6 @@
 extern crate petgraph;
 
+use std::{cell::RefCell, io::Write};
 use tokio::{runtime::Builder, sync::Semaphore, task::LocalSet};
 
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
@@ -7,8 +8,7 @@ use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
-// use ninja_desc::{BuildGraph, TaskResult, TasksMap};
-use ninja_tasks::{Key, Tasks};
+use ninja_tasks::{Key, Task, TaskVariant, Tasks};
 
 pub mod disk_interface;
 mod interface;
@@ -36,6 +36,59 @@ pub enum BuildError {
     CommandPoolPanic,
     #[error("command failed {0}")]
     CommandFailed(#[from] CommandTaskError),
+}
+
+#[derive(Debug)]
+struct Printer {
+    finished: usize,
+    total: usize,
+    console: console::Term,
+}
+
+impl Default for Printer {
+    fn default() -> Self {
+        Printer {
+            finished: 0,
+            total: 0,
+            console: console::Term::stdout(),
+        }
+    }
+}
+
+impl Printer {
+    fn print_status(&mut self, task: &Task) {
+        let command = task.command().expect("only command tasks");
+
+        self.console.clear_line().expect("clear");
+        write!(
+            self.console,
+            "[{}/{}] {}",
+            self.finished, self.total, command
+        )
+        .expect("write");
+    }
+
+    fn started(&mut self, task: &Task) {
+        self.total += 1;
+        self.print_status(task);
+    }
+
+    fn finished(&mut self, task: &Task, result: CommandTaskResult) {
+        self.finished += 1;
+        self.print_status(task);
+        if let Ok(output) = result {
+            if !output.stdout.is_empty() {
+                write!(
+                    self.console,
+                    "\n{}",  // TODO: Correct newline handling.
+                    std::str::from_utf8(&output.stdout).unwrap()
+                )
+                .unwrap();
+            }
+        } else {
+            todo!();
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -182,6 +235,7 @@ where
         assert!(start.is_none(), "not implemented non-externals yet");
         let graph = Self::build_graph(&tasks);
         let mut build_state = BuildState::default();
+        let mut printer = Printer::default();
 
         // Cannot use depth_first_search which doesn't say if it is postorder.
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
@@ -204,7 +258,7 @@ where
             .unwrap();
 
         let mut pending = Vec::new();
-        let sem= Semaphore::new(self.parallelism);
+        let sem = Semaphore::new(self.parallelism);
         let state_ref = &state;
         local_set.block_on(&mut runtime, async {
             while !build_state.done() {
@@ -218,10 +272,12 @@ where
                         }
                         let build_task = rebuilder_result.unwrap();
                         if let Some(build_task) = build_task {
+                            printer.started(task);
                             let sem = &sem;
                             pending.push(Box::pin(async move {
                                 let _p = sem.acquire().await;
-                                futures::future::ready((node, build_task.run(state_ref).await)).await
+                                futures::future::ready((node, build_task.run(state_ref).await))
+                                    .await
                             }));
                         } else {
                             // Phony or something. Always succeeds.
@@ -246,17 +302,13 @@ where
                 // Hmm... need a way to convey result to the outside world later, but keep going with
                 // other tasks. In addition, don't want to pretend something is wrong with the
                 // queue itself.
-                if let Err(e) = result {
-                    // This will update ready and finished, so we will have made progress.
-                    build_state.finish_node(&graph, node, false);
-                    eprintln!("{}", e);
-                    if let CommandTaskError::CommandFailed(output) = e {
-                        eprintln!("{}", String::from_utf8(output.stderr).unwrap());
-                    }
-                } else {
-                    // This will update ready and finished, so we will have made progress.
-                    build_state.finish_node(&graph, node, true);
-                }
+                // This will update ready and finished, so we will have made progress.
+                build_state.finish_node(&graph, node, result.is_ok());
+
+                // If we executed something, that node must have a key and task.
+                let key = graph[node];
+                let task = tasks.task(key);
+                printer.finished(task.unwrap(), result);
             }
             assert!(pending.is_empty());
             Ok(())

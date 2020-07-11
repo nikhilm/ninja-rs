@@ -30,7 +30,6 @@ impl CommandTask {
     }
 
     pub async fn run_command(&self) -> CommandTaskResult {
-        eprintln!("{}", &self.command);
         let output = Command::new("/bin/sh")
             .arg("-c")
             .arg(&self.command)
@@ -46,7 +45,7 @@ impl CommandTask {
 #[async_trait(?Send)]
 impl<State> BuildTask<State, TaskResult> for CommandTask {
     async fn run(&self, state: &State) -> TaskResult {
-            self.run_command().await
+        self.run_command().await
     }
 
     #[cfg(test)]

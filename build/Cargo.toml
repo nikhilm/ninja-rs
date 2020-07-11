@@ -20,6 +20,11 @@ version = "0.2"
 default-features = false
 features = ["sync", "rt-core", "process", "rt-util"]
 
+[dependencies.console]
+version = "0.11"
+default-features = false
+features = []
+
 [dev-dependencies]
 insta = "^0.16.0"
 
