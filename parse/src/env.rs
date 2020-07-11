@@ -1,36 +1,16 @@
 use std::collections::HashMap;
 
-#[derive(Debug)]
-enum Value {
-    Bytes(Vec<u8>),
-    SpaceSeparated(Vec<Vec<u8>>),
-}
-
 #[derive(Default)]
 pub struct Env {
-    // TODO: Switch to Vec<u8> instead of string.
-    bindings: HashMap<String, Value>,
+    bindings: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Env {
-    pub fn add_binding(&mut self, name: String, value: Vec<Vec<u8>>) {
-        self.bindings.insert(name, Value::SpaceSeparated(value));
+    pub fn add_binding<V1: Into<Vec<u8>>, V2: Into<Vec<u8>>>(&mut self, name: V1, value: V2) {
+        self.bindings.insert(name.into(), value.into());
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Vec<u8>> {
-        let value = self.bindings.get(name)?;
-        match value {
-            Value::Bytes(v) => Some(v.clone()),
-            Value::SpaceSeparated(v) => {
-                let mut vec = Vec::new();
-                for (i, el) in v.iter().enumerate() {
-                    vec.extend(el);
-                    if i != v.len() - 1 {
-                        vec.push(b' ');
-                    }
-                }
-                Some(vec)
-            }
-        }
+    pub fn lookup<'a, V: Into<&'a [u8]>>(&self, name: V) -> Option<Vec<u8>> {
+        Some(self.bindings.get(name.into())?.clone())
     }
 }

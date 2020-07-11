@@ -35,9 +35,7 @@ impl<'a> Expr<'a> {
             match term {
                 Term::Literal(bytes) => result.extend_from_slice(bytes),
                 Term::Reference(name) => {
-                    let value = env
-                        .lookup(std::str::from_utf8(name).unwrap())
-                        .expect("TODO missing binding");
+                    let value = env.lookup(*name).expect("TODO missing binding");
                     result.extend(value);
                 }
             }

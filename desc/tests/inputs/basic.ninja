@@ -1,0 +1,10 @@
+rule echo
+	command = echo $out
+
+build first: echo
+build second: echo
+
+rule cc
+	command = gcc $in -o $out
+
+build pasta: cc foo.c bar.c baz.c

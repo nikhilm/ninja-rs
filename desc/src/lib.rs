@@ -26,6 +26,17 @@ pub enum ProcessingError {
 
 const PHONY: &[u8] = &[112, 104, 111, 110, 121];
 
+fn space_seperated_paths(paths: &Vec<Vec<u8>>) -> Vec<u8> {
+    let mut vec = Vec::new();
+    for (i, el) in paths.iter().enumerate() {
+        vec.extend(el);
+        if i != paths.len() - 1 {
+            vec.push(b' ');
+        }
+    }
+    vec
+}
+
 fn canonicalize(past: past::Description) -> Result<Description, ProcessingError> {
     // Using an interner that could accept bytes would allow us to not have to convert.
     let mut rules: HashMap<&[u8], past::Rule> = HashMap::with_capacity(past.rules.len());
@@ -72,10 +83,15 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
             evaluated_outputs.push(output);
         }
 
-        let evaluated_inputs = build.inputs.iter().map(|i| i.eval(&empty_env)).collect();
+        let evaluated_inputs: Vec<Vec<u8>> =
+            build.inputs.iter().map(|i| i.eval(&empty_env)).collect();
 
+        // TODO: Note that any rule/build level binding can refer to these variables, so the entire
+        // build statement evaluation must have this environment available. In addition, these are
+        // "shell quoted" when expanding within a command.
         let mut env = Env::default();
-        env.add_binding("out".to_owned(), evaluated_outputs.clone());
+        env.add_binding(b"out".to_vec(), space_seperated_paths(&evaluated_outputs));
+        env.add_binding(b"in".to_vec(), space_seperated_paths(&evaluated_inputs));
 
         let action = {
             match build.rule {
@@ -258,6 +274,34 @@ mod test {
             ],
         };
         let ast = to_description(desc).unwrap();
+        assert_debug_snapshot!(ast);
+    }
+
+    #[test]
+    fn in_and_out_basic() {
+        let ast = past::Description {
+            rules: vec![past::Rule {
+                name: b"echo",
+                command: past::Expr(vec![
+                    past::Term::Literal(b"echo "),
+                    past::Term::Reference(b"in"),
+                    past::Term::Literal(b" makes "),
+                    past::Term::Reference(b"out"),
+                ]),
+            }],
+            builds: vec![past::Build {
+                rule: b"echo",
+                inputs: vec![
+                    past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                    past::Expr(vec![past::Term::Literal(b"b.txt")]),
+                ],
+                outputs: vec![
+                    past::Expr(vec![past::Term::Literal(b"c.txt")]),
+                    past::Expr(vec![past::Term::Literal(b"d.txt")]),
+                ],
+            }],
+        };
+        let ast = to_description(ast).unwrap();
         assert_debug_snapshot!(ast);
     }
 }
