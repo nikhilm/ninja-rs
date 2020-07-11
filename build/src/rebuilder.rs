@@ -129,14 +129,19 @@ where
     }
 
     pub fn mark_dirty(&self, key: Key, is_dirty: bool) {
-        self.dirty.borrow_mut().insert(
-            key,
-            if is_dirty {
-                Dirtiness::Dirty
-            } else {
-                Dirtiness::Clean
-            },
-        );
+        // Marking as Clean only makes sense for multi-keys. For single-keys that represent
+        // filesystem resources, they are either dirty or need to be consulted in the cache in the
+        // future.
+        if is_dirty || key.is_multi() {
+            self.dirty.borrow_mut().insert(
+                key,
+                if is_dirty {
+                    Dirtiness::Dirty
+                } else {
+                    Dirtiness::Clean
+                },
+            );
+        }
     }
 }
 
@@ -284,7 +289,6 @@ where
 
         self.mtime_state.mark_dirty(key, dirty);
 
-        // eprintln!("{} dirty? {}", &key, dirty);
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
             // dependency is not available.
@@ -346,7 +350,6 @@ mod test {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
-        eprintln!("Task is command {}", task.is_command());
         let task = rebuilder
             .build(Key::Single(b"foo.o".to_vec()), &task)
             .expect("valid task")
@@ -458,5 +461,46 @@ mod test {
                         Err(Error::new(ErrorKind::NotFound, "mock not found"))
         };
         // todo!();
+    }
+
+    /*
+     * foo -> foo.o -> foo.c
+     * but foo is older than foo.o,  while foo.o is newer than foo.c (could happen because a user
+     * touched foo.o). This is a regression test to ensure foo is rebuilt.
+     * Previously, due to how `mark_dirty` would mark even single-keys as clean, this would fail.
+     */
+    #[test]
+    fn test_clean_chain() {
+        let rebuilder = mocked_rebuilder! {p,
+                if p.as_ref() == Path::new("foo.c") {
+                    Ok(UNIX_EPOCH.checked_add(Duration::from_secs(100)).unwrap())
+                } else if p.as_ref() == Path::new("foo.o") {
+                    Ok(UNIX_EPOCH.checked_add(Duration::from_secs(1000)).unwrap())
+                } else if p.as_ref() == Path::new("foo") {
+                    Ok(UNIX_EPOCH.checked_add(Duration::from_secs(500)).unwrap())
+                } else {
+                    Err(Error::new(ErrorKind::NotFound, "mock not found"))
+                }
+        };
+        let cc_task = Task {
+            dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            variant: TaskVariant::Command("cc -c foo.c".to_owned()),
+        };
+        let link_task = Task {
+            dependencies: vec![Key::Single(b"foo.o".to_vec())],
+            variant: TaskVariant::Command("cc -o foo foo.o".to_owned()),
+        };
+
+        // This would previously end up marking foo.o as Clean in the cache.
+        let task = rebuilder
+            .build(Key::Single(b"foo.o".to_vec()), &cc_task)
+            .expect("valid task");
+        assert!(task.is_none(), "foo.o newer than foo.c");
+
+        let task = rebuilder
+            .build(Key::Single(b"foo".to_vec()), &link_task)
+            .expect("valid task")
+            .expect("non-null");
+        assert!(task.is_command());
     }
 }
