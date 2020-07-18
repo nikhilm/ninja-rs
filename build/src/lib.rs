@@ -1,6 +1,6 @@
 extern crate petgraph;
 
-use std::{cell::RefCell, io::Write};
+use std::{io::Write};
 use tokio::{runtime::Builder, sync::Semaphore, task::LocalSet};
 
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
-use ninja_tasks::{Key, Task, TaskVariant, Tasks};
+use ninja_tasks::{Key, Task, Tasks};
 
 pub mod disk_interface;
 mod interface;

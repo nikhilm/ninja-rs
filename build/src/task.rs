@@ -44,7 +44,7 @@ impl CommandTask {
 
 #[async_trait(?Send)]
 impl<State> BuildTask<State, TaskResult> for CommandTask {
-    async fn run(&self, state: &State) -> TaskResult {
+    async fn run(&self, _state: &State) -> TaskResult {
         self.run_command().await
     }
 

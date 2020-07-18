@@ -456,7 +456,7 @@ mod test {
 
     #[test]
     fn test_older_input() {
-        let rebuilder = mocked_rebuilder! {
+        let _rebuilder = mocked_rebuilder! {
                         // This test should not hit disk.
                         Err(Error::new(ErrorKind::NotFound, "mock not found"))
         };
