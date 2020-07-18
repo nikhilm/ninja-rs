@@ -1,6 +1,6 @@
 extern crate petgraph;
 
-use std::{io::Write};
+use std::io::Write;
 use tokio::{runtime::Builder, sync::Semaphore, task::LocalSet};
 
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
@@ -80,7 +80,7 @@ impl Printer {
             if !output.stdout.is_empty() {
                 write!(
                     self.console,
-                    "\n{}",  // TODO: Correct newline handling.
+                    "\n{}", // TODO: Correct newline handling.
                     std::str::from_utf8(&output.stdout).unwrap()
                 )
                 .unwrap();
@@ -88,6 +88,13 @@ impl Printer {
         } else {
             todo!();
         }
+    }
+}
+
+impl Drop for Printer {
+    fn drop(&mut self) {
+        // For now, print a final newline since our status printer isn't.
+        self.console.write_line("").unwrap();
     }
 }
 
