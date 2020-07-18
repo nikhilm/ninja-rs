@@ -59,13 +59,22 @@ impl Printer {
     fn print_status(&mut self, task: &Task) {
         let command = task.command().expect("only command tasks");
 
-        self.console.clear_line().expect("clear");
-        write!(
-            self.console,
-            "[{}/{}] {}",
-            self.finished, self.total, command
-        )
-        .expect("write");
+        if self.console.is_term() {
+            self.console.clear_line().expect("clear");
+            write!(
+                self.console,
+                "[{}/{}] {}",
+                self.finished, self.total, command
+            )
+            .expect("write");
+        } else {
+            writeln!(
+                self.console,
+                "[{}/{}] {}",
+                self.finished, self.total, command
+            )
+            .expect("write");
+        }
     }
 
     fn started(&mut self, task: &Task) {
@@ -94,7 +103,9 @@ impl Printer {
 impl Drop for Printer {
     fn drop(&mut self) {
         // For now, print a final newline since our status printer isn't.
-        self.console.write_line("").unwrap();
+        if self.console.is_term() {
+            self.console.write_line("").unwrap();
+        }
     }
 }
 
