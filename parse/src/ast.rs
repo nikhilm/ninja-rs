@@ -1,5 +1,5 @@
 use crate::env::Env;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub type BytesRef<'a> = &'a [u8];
 
@@ -43,12 +43,25 @@ impl<'a> Expr<'a> {
         }
         result
     }
+
+    pub fn eval_for_build<'b>(&self, env: &Env, rule: &Rule<'b>) -> Vec<u8> {
+        let mut result = Vec::new();
+        for term in &self.0 {
+            match term {
+                Term::Literal(bytes) => result.extend_from_slice(bytes),
+                Term::Reference(name) => {
+                    result.extend(env.lookup_for_build(rule, *name).unwrap_or_default());
+                }
+            }
+        }
+        result
+    }
 }
 
 #[derive(Debug)]
 pub struct Rule<'a> {
     pub name: BytesRef<'a>,
-    pub command: Expr<'a>,
+    pub bindings: HashMap<&'a [u8], Expr<'a>>,
 }
 
 #[derive(Debug)]

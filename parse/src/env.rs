@@ -1,3 +1,4 @@
+use super::ast::Rule;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, Default)]
@@ -41,6 +42,32 @@ impl Env {
             .get(x)
             .map(|x| x.clone())
             .or_else(|| self.parent.as_ref().and_then(|p| p.borrow().lookup(x)))
+    }
+
+    // While this function works, it requires the caller to be aware of when to use it.
+    // It would be nicer to have a BuildEnv binding on build edges that always took a rule binding
+    // for evaluation (and did not have just `lookup`). That would also need the AST eval thing to
+    // change.
+    // We would prefer not to encode lifetimes in top-level env because they can be shared in
+    // sub-ninja rules etc (although it isn't clear yet how a multi-file parser looks). It is ok
+    // however to encode input-related life times in rules and bindings until canonicalization.
+    pub fn lookup_for_build<'b, 'c, V: Into<&'c [u8]>>(
+        &self,
+        rule: &Rule<'b>,
+        name: V,
+    ) -> Option<Vec<u8>> {
+        let x = name.into();
+        dbg!(std::str::from_utf8(&x).unwrap());
+        eprintln!("{}", self);
+        self.bindings.get(x).map(|x| x.clone()).or_else(|| {
+            // TODO: Deal with  the possibility of recursion.
+            let rule_val = rule.bindings.get(&x);
+            if let Some(rule_val) = rule_val {
+                return Some(rule_val.eval_for_build(self, rule));
+            } else {
+                self.parent.as_ref().and_then(|p| p.borrow().lookup(x))
+            }
+        })
     }
 }
 

@@ -1,0 +1,22 @@
+---
+source: desc/tests/desc_test.rs
+expression: ast
+input_file: desc/tests/inputs/rules_evaluate_lazily.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo foo_suffix",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    102,
+                    111,
+                    111,
+                ],
+            ],
+        },
+    ],
+}

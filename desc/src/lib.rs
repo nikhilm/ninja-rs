@@ -22,6 +22,8 @@ pub enum ProcessingError {
     DuplicateOutput(String),
     #[error("build edge refers to unknown rule: {0}")]
     UnknownRule(String),
+    #[error("missing 'command' for rule: {0}")]
+    MissingCommand(String),
 }
 
 const PHONY: &[u8] = &[112, 104, 111, 110, 121];
@@ -45,7 +47,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         PHONY,
         past::Rule {
             name: PHONY,
-            command: past::Expr(vec![]),
+            bindings: HashMap::default(),
         },
     );
     for rule in past.rules {
@@ -67,7 +69,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
     let mut builds = Vec::with_capacity(past.builds.len());
     for build in past.builds {
         let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
-        // TODO: Use the environment in scope.
+        // TODO: Use the environment in scope + the rule environment.
         let empty_env = Env::default();
 
         for output in &build.outputs {
@@ -104,7 +106,18 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
                             std::str::from_utf8(other)?.to_owned(),
                         ));
                     }
-                    Action::Command(String::from_utf8(rule.unwrap().command.eval(&env))?)
+
+                    let rule = rule.unwrap();
+                    let command = rule.bindings.get("command".as_bytes());
+                    if command.is_none() {
+                        return Err(ProcessingError::MissingCommand(
+                            std::str::from_utf8(rule.name)?.to_owned(),
+                        ));
+                    }
+
+                    Action::Command(String::from_utf8(
+                        command.unwrap().eval_for_build(&env, &rule),
+                    )?)
                 }
             }
         };
@@ -139,13 +152,23 @@ mod test {
         ($name:literal) => {
             past::Rule {
                 name: $name.as_bytes(),
-                command: past::Expr(vec![past::Term::Literal(b"")]),
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![past::Term::Literal(b"")]),
+                )]
+                .into_iter()
+                .collect(),
             }
         };
         ($name:literal, $command:literal) => {
             past::Rule {
                 name: $name.as_bytes(),
-                command: past::Expr(vec![past::Term::Literal($command.as_bytes())]),
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![past::Term::Literal($command.as_bytes())]),
+                )]
+                .into_iter()
+                .collect(),
             }
         };
     }
@@ -291,12 +314,17 @@ mod test {
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![past::Rule {
                 name: b"echo",
-                command: past::Expr(vec![
-                    past::Term::Literal(b"echo "),
-                    past::Term::Reference(b"in"),
-                    past::Term::Literal(b" makes "),
-                    past::Term::Reference(b"out"),
-                ]),
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![
+                        past::Term::Literal(b"echo "),
+                        past::Term::Reference(b"in"),
+                        past::Term::Literal(b" makes "),
+                        past::Term::Reference(b"out"),
+                    ]),
+                )]
+                .into_iter()
+                .collect(),
             }],
             builds: vec![past::Build {
                 rule: b"echo",

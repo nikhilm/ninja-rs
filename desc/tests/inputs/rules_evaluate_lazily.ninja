@@ -1,5 +1,5 @@
 rule echo
-    # ninja does not allow any rule variables apart from a pre-declaredlist for now.
+    # ninja does not allow any rule variables apart from a pre-declared list for now.
     description = ${out}_suffix
     command = echo $description
 

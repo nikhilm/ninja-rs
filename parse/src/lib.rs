@@ -2,6 +2,7 @@
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     fmt::{Display, Formatter},
     rc::Rc,
 };
@@ -258,7 +259,7 @@ impl<'a> Parser<'a> {
         let identifier = self.expect_identifier()?;
         self.discard_newline()?;
 
-        let mut command = None;
+        let mut bindings = HashMap::new();
         let mut at_least_one = false;
         loop {
             let item = self.peeker.peek(&mut self.lexer);
@@ -297,10 +298,7 @@ impl<'a> Parser<'a> {
                                 &self.lexer,
                             ));
                         }
-                        eprintln!("VAR {}", std::str::from_utf8(var).unwrap());
-                        if var == b"command" {
-                            command = Some(value);
-                        }
+                        bindings.insert(var, value);
                     }
                     _ => {
                         // Done with this rule since we encountered a non-indent.
@@ -310,20 +308,9 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if command.is_none() {
-            return Err(ParseError::new(
-                format!(
-                    "Missing 'command' for rule '{}'",
-                    std::str::from_utf8(identifier.value()).unwrap_or("invalid utf-8")
-                ),
-                self.lexer.current_pos(),
-                &self.lexer,
-            ));
-        }
-
         Ok(Rule {
             name: identifier.value(),
-            command: command.expect("a command"),
+            bindings,
         })
     }
 
@@ -507,7 +494,7 @@ build foo.o: cc foo.c"#;
                 r#"rule cc
 command"#,
                 8,
-                "Missing 'command'",
+                "=",
             ),
             (
                 r#"rule cc
