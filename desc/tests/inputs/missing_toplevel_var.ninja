@@ -1,0 +1,7 @@
+# Undefined variables evaluate to empty.
+cflags = $other
+
+rule echo
+    command = echo $cflags
+
+build foo: echo

@@ -1,0 +1,8 @@
+# nested
+debug = -g
+cflags = $debug -Wall
+
+rule cc
+	command = cc ${cflags} -o $out $in
+
+build foo: cc foo.c
