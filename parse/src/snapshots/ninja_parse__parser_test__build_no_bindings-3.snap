@@ -3,6 +3,12 @@ source: parse/src/lib.rs
 expression: ast
 ---
 Description {
+    bindings: RefCell {
+        value: Env {
+            parent: None,
+            bindings: {},
+        },
+    },
     rules: [
         Rule {
             name: [

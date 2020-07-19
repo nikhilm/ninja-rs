@@ -1,5 +1,7 @@
-pub type BytesRef<'a> = &'a [u8];
 use crate::env::Env;
+use std::{cell::RefCell, rc::Rc};
+
+pub type BytesRef<'a> = &'a [u8];
 
 /*
 struct Binding {
@@ -10,7 +12,7 @@ struct Binding {
 
 #[derive(Debug)]
 pub struct Description<'a> {
-    // bindings: _,
+    pub bindings: Rc<RefCell<Env>>,
     pub rules: Vec<Rule<'a>>,
     pub builds: Vec<Build<'a>>,
     // defaults: _,

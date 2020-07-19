@@ -89,7 +89,8 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
         // TODO: Note that any rule/build level binding can refer to these variables, so the entire
         // build statement evaluation must have this environment available. In addition, these are
         // "shell quoted" when expanding within a command.
-        let mut env = Env::default();
+        // TODO: Get environment from rule!
+        let mut env = Env::with_parent(past.bindings.clone());
         env.add_binding(b"out".to_vec(), space_seperated_paths(&evaluated_outputs));
         env.add_binding(b"in".to_vec(), space_seperated_paths(&evaluated_inputs));
 
@@ -131,7 +132,8 @@ mod test {
     use insta::assert_debug_snapshot;
 
     use super::{to_description, ProcessingError};
-    use ninja_parse::ast as past;
+    use ninja_parse::{ast as past, env::Env};
+    use std::{cell::RefCell, rc::Rc};
 
     macro_rules! rule {
         ($name:literal) => {
@@ -151,6 +153,7 @@ mod test {
     #[test]
     fn no_rule_named_phony() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![rule!["phony"]],
             builds: vec![],
         };
@@ -162,6 +165,7 @@ mod test {
     #[test]
     fn err_duplicate_rule() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![
                 rule!("link", "link.exe"),
                 rule!("compile", "compile.exe"),
@@ -176,6 +180,7 @@ mod test {
     #[test]
     fn duplicate_output() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![
                 past::Build {
@@ -199,6 +204,7 @@ mod test {
     #[test]
     fn duplicate_output2() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![
                 past::Build {
@@ -228,6 +234,7 @@ mod test {
     #[test]
     fn unknown_rule() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![past::Build {
                 rule: b"baloney",
@@ -244,6 +251,7 @@ mod test {
     #[test]
     fn success() {
         let desc = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![
                 rule!["link", "link.exe"],
                 rule!["cc", "clang"],
@@ -280,6 +288,7 @@ mod test {
     #[test]
     fn in_and_out_basic() {
         let ast = past::Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![past::Rule {
                 name: b"echo",
                 command: past::Expr(vec![

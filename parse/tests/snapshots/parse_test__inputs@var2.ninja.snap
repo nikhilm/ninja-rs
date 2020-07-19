@@ -4,6 +4,12 @@ expression: ast
 input_file: parse/tests/inputs/var2.ninja
 ---
 Description {
+    bindings: RefCell {
+        value: Env {
+            parent: None,
+            bindings: {},
+        },
+    },
     rules: [
         Rule {
             name: [

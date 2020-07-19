@@ -1,0 +1,6 @@
+cflags = -g -Wall
+
+rule cc
+	command = cc ${cflags} -o $out $in
+
+build foo: cc foo.c

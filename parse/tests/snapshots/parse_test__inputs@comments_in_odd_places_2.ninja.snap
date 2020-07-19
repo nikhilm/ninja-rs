@@ -4,6 +4,12 @@ expression: ast
 input_file: parse/tests/inputs/comments_in_odd_places_2.ninja
 ---
 Description {
+    bindings: RefCell {
+        value: Env {
+            parent: None,
+            bindings: {},
+        },
+    },
     rules: [
         Rule {
             name: [

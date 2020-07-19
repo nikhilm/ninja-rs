@@ -1,6 +1,10 @@
 #![feature(is_sorted)]
 
-use std::fmt::{Display, Formatter};
+use std::{
+    cell::RefCell,
+    fmt::{Display, Formatter},
+    rc::Rc,
+};
 
 use thiserror::Error;
 
@@ -338,13 +342,25 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> Result<Description<'a>, ParseError> {
         let mut description = Description {
+            bindings: Rc::new(RefCell::new(Env::default())),
             rules: Vec::new(),
             builds: Vec::new(),
         };
+        // Focus here on handling bindings at the top-level, in rules and in builds.
         while let Some(result) = self.lexer.next() {
             let (token, pos) =
                 result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             match token {
+                Lexeme::Identifier(ident) => {
+                    self.discard_assignment()?;
+                    let value = self.expect_value()?;
+                    // Top-level bindings are evaluated immediately.
+                    let value = {
+                        let b = description.bindings.borrow();
+                        value.eval(&b)
+                    };
+                    description.bindings.borrow_mut().add_binding(ident, value);
+                }
                 Lexeme::Rule => {
                     description.rules.push(self.parse_rule()?);
                 }
