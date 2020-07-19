@@ -11,6 +11,8 @@ pub struct Env {
     bindings: HashMap<Vec<u8>, Vec<u8>>,
 }
 
+// Umm... bindngs may need to store exprs to allow rules to store unevaluated things.
+
 impl Env {
     pub fn with_parent(env: Rc<RefCell<Env>>) -> Self {
         Env {

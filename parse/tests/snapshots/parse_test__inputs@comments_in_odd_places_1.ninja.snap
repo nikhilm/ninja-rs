@@ -3,6 +3,6 @@ source: parse/tests/parse_test.rs
 expression: e
 input_file: parse/tests/inputs/comments_in_odd_places_1.ninja
 ---
-/home/nsmnikhil/ninja-rs/parse/tests/inputs/comments_in_odd_places_1.ninja:4:1: Unhandled token Indent
+/home/nsmnikhil/ninja-rs/parse/tests/inputs/comments_in_odd_places_1.ninja:4:10: Expected =, got newline
       bar
-^ near here
+         ^ near here

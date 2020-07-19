@@ -14,7 +14,7 @@ mod lexer;
 
 use ast::*;
 pub use env::Env;
-use lexer::{Lexeme, Lexer, LexerError, Position};
+use lexer::{Lexeme, Lexer, LexerError, LexerItem, Position};
 
 #[derive(Debug, Error)]
 pub struct ParseError {
@@ -72,14 +72,38 @@ impl Display for ParseError {
     }
 }
 
+#[derive(Default)]
+struct Peeker<'a> {
+    peeked: Option<LexerItem<'a>>,
+}
+
+impl<'a> Peeker<'a> {
+    fn next(&mut self, lexer: &mut Lexer<'a>) -> Option<LexerItem<'a>> {
+        if self.peeked.is_some() {
+            self.peeked.take()
+        } else {
+            lexer.next()
+        }
+    }
+
+    fn peek(&mut self, lexer: &mut Lexer<'a>) -> Option<&LexerItem<'a>> {
+        if self.peeked.is_none() {
+            self.peeked = self.next(lexer);
+        }
+        self.peeked.as_ref()
+    }
+}
+
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
+    peeker: Peeker<'a>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(input: &[u8], filename: Option<String>) -> Parser {
         Parser {
             lexer: Lexer::new(input, filename),
+            peeker: Default::default(),
         }
     }
 
@@ -88,7 +112,7 @@ impl<'a> Parser<'a> {
         msg_type: &'static str,
     ) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
         loop {
-            let item = self.lexer.next();
+            let item = self.peeker.next(&mut self.lexer);
             if item.is_none() {
                 return Err(ParseError::eof(
                     format!("Expected {}, got EOF", msg_type),
@@ -233,15 +257,73 @@ impl<'a> Parser<'a> {
     fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
         let identifier = self.expect_identifier()?;
         self.discard_newline()?;
-        self.discard_indent()?;
-        let (var, value) = self.read_assignment()?;
-        // TODO: Move this to a semantic pass.
-        if var != b"command" {
-            todo!("Don't know how to handle anything except command");
+
+        let mut command = None;
+        let mut at_least_one = false;
+        loop {
+            let item = self.peeker.peek(&mut self.lexer);
+            if item.is_none() {
+                if at_least_one {
+                    break;
+                } else {
+                    return Err(ParseError::eof(
+                        format!("Expected indent, got EOF"),
+                        &self.lexer,
+                    ));
+                }
+            }
+
+            let item = item.unwrap();
+            eprintln!("Continuing loop with {:?}", item);
+            if let Ok((lexeme, _)) = &item {
+                match lexeme {
+                    Lexeme::Newline | Lexeme::Comment(_) => {
+                        self.peeker.next(&mut self.lexer);
+                        // continue looping.
+                    }
+                    Lexeme::Indent => {
+                        // is an indent, do the rest of this loop.
+                        at_least_one = true;
+                        self.discard_indent()?;
+                        let (var, value) = self.read_assignment()?;
+                        // TODO: Move this to a semantic pass.
+                        if !allowed_rule_variable(var) {
+                            return Err(ParseError::new(
+                                format!(
+                                    "unexpected variable '{}'",
+                                    std::str::from_utf8(var).unwrap_or("invalid utf-8")
+                                ),
+                                self.lexer.current_pos(),
+                                &self.lexer,
+                            ));
+                        }
+                        eprintln!("VAR {}", std::str::from_utf8(var).unwrap());
+                        if var == b"command" {
+                            command = Some(value);
+                        }
+                    }
+                    _ => {
+                        // Done with this rule since we encountered a non-indent.
+                        break;
+                    }
+                }
+            }
         }
+
+        if command.is_none() {
+            return Err(ParseError::new(
+                format!(
+                    "Missing 'command' for rule '{}'",
+                    std::str::from_utf8(identifier.value()).unwrap_or("invalid utf-8")
+                ),
+                self.lexer.current_pos(),
+                &self.lexer,
+            ));
+        }
+
         Ok(Rule {
             name: identifier.value(),
-            command: value,
+            command: command.expect("a command"),
         })
     }
 
@@ -259,7 +341,7 @@ impl<'a> Parser<'a> {
         let mut rule = None;
         let mut state = Read::Outputs;
         let mut first_line_pos = None;
-        while let Some(result) = self.lexer.next() {
+        while let Some(result) = self.peeker.next(&mut self.lexer) {
             let (token, pos) =
                 result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             if first_line_pos.is_none() {
@@ -347,7 +429,7 @@ impl<'a> Parser<'a> {
             builds: Vec::new(),
         };
         // Focus here on handling bindings at the top-level, in rules and in builds.
-        while let Some(result) = self.lexer.next() {
+        while let Some(result) = self.peeker.next(&mut self.lexer) {
             let (token, pos) =
                 result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
             match token {
@@ -380,6 +462,12 @@ impl<'a> Parser<'a> {
         }
         Ok(description)
     }
+}
+
+const ALLOWED_RULE_VARIABLES: &[&[u8]] = &[b"command", b"description"];
+
+fn allowed_rule_variable(name: &[u8]) -> bool {
+    ALLOWED_RULE_VARIABLES.contains(&name)
 }
 
 #[cfg(test)]
@@ -418,8 +506,8 @@ build foo.o: cc foo.c"#;
                 // Expect indent
                 r#"rule cc
 command"#,
-                1,
-                "indent",
+                8,
+                "Missing 'command'",
             ),
             (
                 r#"rule cc

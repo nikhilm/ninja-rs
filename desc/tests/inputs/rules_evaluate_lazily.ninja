@@ -1,0 +1,6 @@
+rule echo
+    # ninja does not allow any rule variables apart from a pre-declaredlist for now.
+    description = ${out}_suffix
+    command = echo $description
+
+build foo: echo

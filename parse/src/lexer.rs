@@ -267,6 +267,10 @@ impl<'a> Lexer<'a> {
         Pos(self.data.len())
     }
 
+    pub fn current_pos(&self) -> Pos {
+        Pos(self.offset)
+    }
+
     pub fn to_position(&self, pos: Pos) -> Position {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
@@ -582,8 +586,10 @@ impl<'a> Debug for Lexer<'a> {
 
 type TokenPos<'a> = (Lexeme<'a>, Pos);
 
+pub type LexerItem<'a> = Result<TokenPos<'a>, LexerError>;
+
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<TokenPos<'a>, LexerError>;
+    type Item = LexerItem<'a>;
 
     // A ninja file lexer should not evaluate variables. It should only emit a token stream. This
     // means things like subninja/include do not affect the lexer, they are just keywords. On the
