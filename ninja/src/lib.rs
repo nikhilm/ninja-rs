@@ -2,10 +2,11 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler};
-use ninja_desc::to_description;
+use ninja_desc::{build_representation, Loader};
 use ninja_metrics::scoped_metric;
 use ninja_parse::Parser;
 use ninja_tasks::description_to_tasks;
+use std::path::Path;
 
 /// Nothing to do with rustc debug vs. release.
 /// This is just ninja terminology.
@@ -39,6 +40,13 @@ pub struct Config {
     pub debug_modes: Vec<DebugMode>,
 }
 
+struct FileLoader {}
+impl Loader for FileLoader {
+    fn load(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+}
+
 pub fn run(config: Config) -> anyhow::Result<()> {
     if let Some(dir) = &config.execution_dir {
         std::env::set_current_dir(&dir).with_context(|| format!("changing to {} for -C", &dir))?;
@@ -48,21 +56,8 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     if metrics_enabled {
         ninja_metrics::enable();
     }
-    let input = std::fs::read(&config.build_file)
-        .with_context(|| format!("ninja file {}", &config.build_file))?;
-    let ast = {
-        scoped_metric!("parse");
-        // TODO: Better error.
-        // 0. pulling in subninja and includes with correct scoping.
-        // TODO
-        Parser::new(&input, Some(config.build_file.clone())).parse()?
-    };
-    let repr = {
-        scoped_metric!("analyze");
-        // seems like each metric costs 3ms to set up :(
-        to_description(ast)?
-    };
-
+    let mut loader = FileLoader {};
+    let repr = build_representation(&mut loader, config.build_file.clone())?;
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
     // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are

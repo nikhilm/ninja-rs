@@ -1,10 +1,16 @@
-use ninja_parse::{ast as past, Env};
+use ninja_metrics::scoped_metric;
+use ninja_parse::{ast as past, Env, ParseError, Parser};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    path::Path,
     str::Utf8Error,
     string::FromUtf8Error,
 };
 use thiserror::Error;
+
+pub trait Loader {
+    fn load(&mut self, path: &Path) -> std::io::Result<Vec<u8>>;
+}
 
 pub mod repr;
 pub use repr::*;
@@ -24,6 +30,10 @@ pub enum ProcessingError {
     UnknownRule(String),
     #[error("missing 'command' for rule: {0}")]
     MissingCommand(String),
+    #[error("{0}")]
+    ParseFailed(#[from] ParseError),
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
 }
 
 const PHONY: &[u8] = &[112, 104, 111, 110, 121];
@@ -131,7 +141,7 @@ fn canonicalize(past: past::Description) -> Result<Description, ProcessingError>
     Ok(Description { builds })
 }
 
-pub fn to_description(past: past::Description) -> Result<Description, ProcessingError> {
+fn to_description(past: past::Description) -> Result<Description, ProcessingError> {
     // Passes.
     // This should handle.
     // 1. TODO evaluating all variables to final values.
@@ -140,6 +150,21 @@ pub fn to_description(past: past::Description) -> Result<Description, Processing
     // 3. How does this handle include vs subninja and combining rules/edges with relevant
     //    namespacing.
     Ok(canonicalize(past)?)
+}
+
+pub fn build_representation(
+    loader: &mut dyn Loader,
+    start: String,
+) -> Result<Description, ProcessingError> {
+    let contents = loader.load(start.as_ref())?;
+    let ast = {
+        scoped_metric!("parse");
+        Parser::new(&contents, Some(start)).parse()?
+    };
+    {
+        scoped_metric!("analyze");
+        to_description(ast)
+    }
 }
 
 #[cfg(test)]

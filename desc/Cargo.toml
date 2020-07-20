@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 ninja-parse = { path = "../parse" }
+ninja-metrics = { path = "../metrics" }
 thiserror = "^1.0"
 
 [dev-dependencies]

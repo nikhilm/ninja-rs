@@ -1,7 +1,8 @@
 use insta::{assert_debug_snapshot, assert_display_snapshot};
-use ninja_desc::to_description;
+use ninja_desc::{build_representation, Loader};
 use ninja_parse::Parser;
 use std::fs;
+
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
 use std::path::Path;
 
@@ -31,6 +32,13 @@ pub fn glob_exec<F: FnMut(&Path)>(base: &Path, pattern: &str, mut f: F) {
 }
 /* end */
 
+struct FileLoader {}
+impl Loader for FileLoader {
+    fn load(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+}
+
 #[test]
 fn test_inputs() {
     // MANIFEST_DIR points to crate, but file! is workspace relative.
@@ -46,9 +54,8 @@ fn test_inputs() {
 
     glob_exec(&base, "inputs/*.ninja", |path| {
         eprintln!("File {:?}", path);
-        let input = fs::read(path).unwrap();
-        let parser = Parser::new(&input, Some(path.as_os_str().to_str().unwrap().to_string()));
-        let res = to_description(parser.parse().expect("success"));
+        let mut loader = FileLoader {};
+        let res = build_representation(&mut loader, path.as_os_str().to_str().unwrap().to_string());
         match res {
             Ok(ast) => assert_debug_snapshot!(ast),
             Err(e) => assert_display_snapshot!(e),
