@@ -6,8 +6,8 @@ use std::{
 };
 use thiserror::Error;
 
-pub mod ast;
-pub use ast::*;
+pub mod repr;
+pub use repr::*;
 
 #[derive(Error, Debug)]
 #[error("some processing error TODO")]
@@ -137,6 +137,8 @@ pub fn to_description(past: past::Description) -> Result<Description, Processing
     // 1. TODO evaluating all variables to final values.
     // let ast = evaluate(ast);
     // 2. canonicalizing paths.
+    // 3. How does this handle include vs subninja and combining rules/edges with relevant
+    //    namespacing.
     Ok(canonicalize(past)?)
 }
 
@@ -176,6 +178,7 @@ mod test {
     #[test]
     fn no_rule_named_phony() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![rule!["phony"]],
             builds: vec![],
@@ -188,6 +191,7 @@ mod test {
     #[test]
     fn err_duplicate_rule() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![
                 rule!("link", "link.exe"),
@@ -203,6 +207,7 @@ mod test {
     #[test]
     fn duplicate_output() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![
@@ -227,6 +232,7 @@ mod test {
     #[test]
     fn duplicate_output2() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![
@@ -257,6 +263,7 @@ mod test {
     #[test]
     fn unknown_rule() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![],
             builds: vec![past::Build {
@@ -274,6 +281,7 @@ mod test {
     #[test]
     fn success() {
         let desc = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![
                 rule!["link", "link.exe"],
@@ -311,6 +319,7 @@ mod test {
     #[test]
     fn in_and_out_basic() {
         let ast = past::Description {
+            includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![past::Rule {
                 name: b"echo",

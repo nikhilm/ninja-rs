@@ -84,3 +84,39 @@ If we were to have the parser emit an AST instead of using the builder directly,
 ## Questions of concurrency
 
 Since we eventually want concurrent job execution, we need to make sure our designs don't lock us into a space where supporting something like that is difficult.
+
+## On include and subninja
+
+The ninja design (by empirical observation) scopes rules but not build edges. What I mean is, a parse beginning at the main (typically build.ninja) file eventually resolves into one canonical set of build edges. This main file can include other ninja files with `include` or `subninja`. The former operates like a C include and "pulls" the other file into this scope. Since rules "have scope"/"are scoped to a file", redefining a rule with the same name in this case will error. With a `subninja`, this will not error as they are 2 different rules. On the other hand, build edges are identified purely by inputs and outputs, and those inputs/outputs are resolved relative to the ninja file. If those end up evaluating to the same outputs, ninja will warn (and we fail, but probably shouldn't later). A parsing model needs to account for this. We may want the parser to just produce an AST with a Include node that then has a full AST of the included file, and similarly for subninja. As long as this does not break variable evaluation at the top level, and rule inference. Then we can have the canonicalization pass handle rule-duplication correctly based on the type.
+
+~It is mandatory that an include is processed when found (and not in a future pass) because the values of variables "at that instant" matter.~
+That is not true. Running an example through ninja shows that build edges are evaluated after everything is parsed, so that top-level bindings use their last assigned value even in includes.
+
+i.e.
+
+```
+  # trial.ninja
+rule echo
+    command = echo $a
+
+a = 2
+include trial_include.ninja
+build bar: echo
+a = 3
+```
+
+```
+  # trial_include.ninja
+build foo: echo
+```
+
+Running `ninja -f trial.ninja` will print 3 for both build edges. So a multi-pass architecture can still be preserved.
+
+We should also add a test for re-binding variables that previously were expanded. Something like:
+
+```
+a = 1
+b = number_${a}  # Should be number_1
+a = 2
+c = number_${a}  # Should be number_2
+```

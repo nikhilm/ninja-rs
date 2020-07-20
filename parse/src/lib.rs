@@ -414,6 +414,7 @@ impl<'a> Parser<'a> {
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: Vec::new(),
             builds: Vec::new(),
+            includes: Vec::new(),
         };
         // Focus here on handling bindings at the top-level, in rules and in builds.
         while let Some(result) = self.peeker.next(&mut self.lexer) {
@@ -435,6 +436,10 @@ impl<'a> Parser<'a> {
                 }
                 Lexeme::Build => {
                     description.builds.push(self.parse_build()?);
+                }
+                Lexeme::Include => {
+                    let path = self.expect_value()?;
+                    description.includes.push(Include { path });
                 }
                 Lexeme::Newline => {}
                 Lexeme::Comment(_) => {}

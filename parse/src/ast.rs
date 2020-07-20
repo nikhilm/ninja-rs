@@ -16,7 +16,7 @@ pub struct Description<'a> {
     pub rules: Vec<Rule<'a>>,
     pub builds: Vec<Build<'a>>,
     // defaults: _,
-    // includes: _,
+    pub includes: Vec<Include<'a>>,
     // subninjas: _,
     // pools: _,
 }
@@ -73,13 +73,14 @@ pub struct Build<'a> {
     // ...
 }
 
+#[derive(Debug)]
+pub struct Include<'a> {
+    pub path: Expr<'a>,
+}
+
 /*
 struct Default {
     targets: _,
-}
-
-struct Include {
-    path: _,
 }
 
 struct Subninja {

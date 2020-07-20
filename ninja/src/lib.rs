@@ -57,7 +57,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         // TODO
         Parser::new(&input, Some(config.build_file.clone())).parse()?
     };
-    let ast = {
+    let repr = {
         scoped_metric!("analyze");
         // seems like each metric costs 3ms to set up :(
         to_description(ast)?
@@ -73,7 +73,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // don't spit out executable tasks, instead just having an enum.
     let tasks = {
         scoped_metric!("to_tasks");
-        description_to_tasks(ast)
+        description_to_tasks(repr)
     };
 
     // BTW, one way to model cheap string/byte references by index without having to pass lifetimes
