@@ -1,4 +1,4 @@
-use ninja_desc::repr::*;
+use ninja_parse::repr::*;
 use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]

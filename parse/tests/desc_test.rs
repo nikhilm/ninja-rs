@@ -1,6 +1,5 @@
 use insta::{assert_debug_snapshot, assert_display_snapshot};
-use ninja_desc::{build_representation, Loader};
-use ninja_parse::Parser;
+use ninja_parse::{build_representation, Loader, Parser};
 use std::fs;
 
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
@@ -52,7 +51,7 @@ fn test_inputs() {
         .canonicalize()
         .unwrap();
 
-    glob_exec(&base, "inputs/*.ninja", |path| {
+    glob_exec(&base, "desc_inputs/*.ninja", |path| {
         eprintln!("File {:?}", path);
         let mut loader = FileLoader {};
         let res = build_representation(&mut loader, path.as_os_str().to_str().unwrap().to_string());

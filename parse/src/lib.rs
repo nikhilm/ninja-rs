@@ -440,6 +440,7 @@ impl<'a> Parser<'a> {
                 Lexeme::Include => {
                     let path = self.expect_value()?;
                     description.includes.push(Include { path });
+                    self.discard_newline()?;
                 }
                 Lexeme::Newline => {}
                 Lexeme::Comment(_) => {}

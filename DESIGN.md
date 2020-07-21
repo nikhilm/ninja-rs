@@ -112,6 +112,33 @@ build foo: echo
 
 Running `ninja -f trial.ninja` will print 3 for both build edges. So a multi-pass architecture can still be preserved.
 
+OOPS! NOT SO FAST! What I said above is wrong. Because top-level bindings are expanded immediately in all ninja files, we DO need to immediately parse and expand a file as soon as an include is encountered. Consider
+
+```
+  # trial.ninja
+rule echo
+    command = echo $buildvar
+
+a = 2
+include trial_include.ninja
+a = 3
+build bar: echo
+    buildvar = $a
+```
+
+```
+  # trial_include.ninja
+b = $a
+build foo: echo
+    buildvar = $b
+```
+
+Here, `buildvar = 2` for foo and `buildvar = 3` for bar.
+
+This implies we have to move to a state based parse model, where the parser is aware of the state and keeps updating it, including performing evaluation. Thus a parser cannot really produce an AST since certain lexemes cause side effects at parse time. Parsing each file independently is also not possible.
+
+Given all this, the parser is the one that should present some kind of Session API to start an entire "N .ninja files" parse. There is still a bunch of "parse" vs "canonicalize" kind of stuff, such that it may make sense to have a distinction between parsing and processing internally, but the two will need to inter-op. In particular, since top-level and build-edge level variables are immediately expanded, but rule variables are expanded "later" in the scope of the build-edge, reading bindings in a build-edge leads to expansion immediately (and so build edges have an Env from Vec<u8> to Vec<u8>) while rules still have an Env from Vec<u8> to Expr that will be evaluated "later". This also means we may not want rule bindings to keep around the entire parsed bytes, since we may want to deallocate those by the time we start running commands.
+
 We should also add a test for re-binding variables that previously were expanded. Something like:
 
 ```

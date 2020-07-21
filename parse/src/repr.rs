@@ -3,6 +3,7 @@
 // This actually needs to come after the variable evaluation pass.
 #[derive(Debug)]
 pub struct Description {
+    // will have things like pools and minimum ninja version and defaults and so on.
     pub builds: Vec<Build>,
 }
 

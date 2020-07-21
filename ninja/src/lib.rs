@@ -2,11 +2,10 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler};
-use ninja_desc::{build_representation, Loader};
 use ninja_metrics::scoped_metric;
-use ninja_parse::Parser;
+use ninja_parse::{build_representation, Loader, Parser};
 use ninja_tasks::description_to_tasks;
-use std::path::Path;
+use std::{os::unix::ffi::OsStrExt, path::Path};
 
 /// Nothing to do with rustc debug vs. release.
 /// This is just ninja terminology.
@@ -42,8 +41,11 @@ pub struct Config {
 
 struct FileLoader {}
 impl Loader for FileLoader {
-    fn load(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
-        std::fs::read(path)
+    type Error = std::io::Error;
+
+    fn load(&mut self, from: &[u8], request: &[u8]) -> std::io::Result<Vec<u8>> {
+        // TODO: Handle relative paths with from.
+        std::fs::read(Path::from(request))
     }
 }
 
@@ -57,7 +59,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         ninja_metrics::enable();
     }
     let mut loader = FileLoader {};
-    let repr = build_representation(&mut loader, config.build_file.clone())?;
+    let repr = build_representation(&mut loader, config.build_file.as_bytes())?;
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
     // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are

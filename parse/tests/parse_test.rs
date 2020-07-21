@@ -43,7 +43,7 @@ fn test_inputs() {
         .canonicalize()
         .unwrap();
 
-    glob_exec(&base, "inputs/*.ninja", |path| {
+    glob_exec(&base, "parse_inputs/*.ninja", |path| {
         eprintln!("File {:?}", path);
         let input = fs::read(path).unwrap();
         let parser = Parser::new(&input, Some(path.as_os_str().to_str().unwrap().to_string()));
