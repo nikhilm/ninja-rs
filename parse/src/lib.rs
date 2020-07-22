@@ -13,8 +13,7 @@ use std::{
 use thiserror::Error;
 
 pub trait Loader {
-    type Error: std::error::Error;
-    fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> Result<Vec<u8>, Self::Error>;
+    fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> Result<Vec<u8>, std::io::Error>;
 }
 
 mod ast;
@@ -171,18 +170,18 @@ impl ParseState {
     }
 }
 
-fn parse_single<Error>(
+fn parse_single(
     contents: &[u8],
     name: Option<String>,
     state: &mut ParseState,
-    loader: &mut dyn Loader<Error = Error>,
+    loader: &mut dyn Loader,
 ) -> Result<(), ProcessingError> {
     Parser::new(&contents, name).parse(state, loader)?;
     Ok(())
 }
 
 pub fn build_representation(
-    loader: &mut dyn Loader<Error = std::io::Error>,
+    loader: &mut dyn Loader,
     start: String,
 ) -> Result<Description, ProcessingError> {
     scoped_metric!("parse");

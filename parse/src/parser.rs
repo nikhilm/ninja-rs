@@ -407,10 +407,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(crate) fn parse<Error>(
+    pub(crate) fn parse(
         mut self,
         state: &mut ParseState,
-        loader: &mut dyn Loader<Error = Error>,
+        loader: &mut dyn Loader,
     ) -> Result<(), ProcessingError> {
         let mut bindings = Rc::new(RefCell::new(Env::default()));
         // Focus here on handling bindings at the top-level, in rules and in builds.

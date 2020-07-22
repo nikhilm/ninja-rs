@@ -41,8 +41,6 @@ pub struct Config {
 
 struct FileLoader {}
 impl Loader for FileLoader {
-    type Error = std::io::Error;
-
     fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> std::io::Result<Vec<u8>> {
         // TODO: Handle relative paths with from.
         assert!(from.is_none());
