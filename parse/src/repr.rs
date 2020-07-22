@@ -1,7 +1,7 @@
 // Paths are canonicalized and mapped to a cache
 // Rules are interned into indices.
 // This actually needs to come after the variable evaluation pass.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Description {
     // will have things like pools and minimum ninja version and defaults and so on.
     pub builds: Vec<Build>,

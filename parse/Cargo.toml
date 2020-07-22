@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 thiserror = "^1.0"
+ninja-metrics = { path = "../metrics" }
 
 [dev-dependencies]
 insta = "^0.16.0"

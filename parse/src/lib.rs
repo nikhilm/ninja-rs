@@ -1,579 +1,415 @@
 #![feature(is_sorted)]
-
+// Holding place until we figure out refactor.
+use ast as past;
+use ninja_metrics::scoped_metric;
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    fmt::{Display, Formatter},
+    collections::{hash_map::Entry, HashMap, HashSet},
+    path::Path,
     rc::Rc,
+    str::Utf8Error,
+    string::FromUtf8Error,
 };
-
 use thiserror::Error;
 
-pub mod ast;
-pub mod env;
+pub trait Loader {
+    type Error: std::error::Error;
+    fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> Result<Vec<u8>, Self::Error>;
+}
+
+mod ast;
+mod env;
 mod lexer;
+mod parser;
+pub mod repr;
 
-use ast::*;
-pub use env::Env;
-use lexer::{Lexeme, Lexer, LexerError, LexerItem, Position};
+use env::Env;
+use parser::{ParseError, Parser};
+pub use repr::*;
 
-#[derive(Debug, Error)]
-pub struct ParseError {
-    position: Position,
-    line: String,
-    message: String,
+#[derive(Error, Debug)]
+#[error("some processing error TODO")]
+pub enum ProcessingError {
+    #[error("utf-8 error")]
+    Utf8Error(#[from] Utf8Error),
+    #[error("string utf-8 error")]
+    StringUtf8Error(#[from] FromUtf8Error),
+    #[error("duplicate rule name: {0}")]
+    DuplicateRule(String),
+    #[error("duplicate output: {0}")]
+    DuplicateOutput(String),
+    #[error("build edge refers to unknown rule: {0}")]
+    UnknownRule(String),
+    #[error("missing 'command' for rule: {0}")]
+    MissingCommand(String),
+    #[error("{0}")]
+    ParseFailed(#[from] ParseError),
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
 }
 
-impl ParseError {
-    fn new<S: Into<String>>(msg: S, pos: lexer::Pos, lexer: &Lexer) -> ParseError {
-        let position = lexer.to_position(pos);
-        let line = lexer.retrieve_line(&position);
-        // TODO: Invalid utf8 should trigger nice error.
-        let owned_line = std::str::from_utf8(line).expect("utf8").to_owned();
-        ParseError {
-            position,
-            line: owned_line,
-            message: msg.into(),
+const PHONY: &[u8] = &[112, 104, 111, 110, 121];
+
+fn space_seperated_paths(paths: &Vec<Vec<u8>>) -> Vec<u8> {
+    let mut vec = Vec::new();
+    for (i, el) in paths.iter().enumerate() {
+        vec.extend(el);
+        if i != paths.len() - 1 {
+            vec.push(b' ');
         }
     }
-
-    fn eof<S: Into<String>>(msg: S, lexer: &Lexer) -> ParseError {
-        let pos = lexer.last_pos();
-        ParseError::new(msg, pos, lexer)
-    }
-
-    fn from_lexer_error(err: LexerError, lexer: &Lexer) -> ParseError {
-        match err {
-            LexerError::UnexpectedEof(pos) => ParseError::new("Unexpected EOF", pos, lexer),
-            LexerError::IllegalCharacter(pos, _ch) => {
-                ParseError::new("Illegal character", pos, lexer)
-            }
-            LexerError::NotAnIdentifier(pos, _ch) => {
-                ParseError::new("Expected identifier", pos, lexer)
-            }
-            LexerError::MissingBrace(pos) => {
-                ParseError::new("Expected closing parentheses '}'", pos, lexer)
-            }
-        }
-    }
+    vec
 }
 
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "{filename}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
-            filename = self.position.filename.as_deref().unwrap_or(""),
-            lineno = self.position.line,
-            col = self.position.column,
-            msg = self.message,
-            line = self.line,
-            indent = " ".repeat(self.position.column.saturating_sub(1)),
-        )
-    }
+struct ParseState {
+    known_rules: HashMap<Vec<u8>, past::Rule>,
+    outputs_seen: HashSet<Vec<u8>>,
+    description: Description,
 }
 
-#[derive(Default)]
-struct Peeker<'a> {
-    peeked: Option<LexerItem<'a>>,
-}
-
-impl<'a> Peeker<'a> {
-    fn next(&mut self, lexer: &mut Lexer<'a>) -> Option<LexerItem<'a>> {
-        if self.peeked.is_some() {
-            self.peeked.take()
-        } else {
-            lexer.next()
+impl Default for ParseState {
+    fn default() -> Self {
+        let mut rules = HashMap::default();
+        // Insert built-in rules.
+        rules.insert(
+            PHONY.to_vec(),
+            past::Rule {
+                name: PHONY.to_vec(),
+                bindings: HashMap::default(),
+            },
+        );
+        Self {
+            known_rules: rules,
+            outputs_seen: HashSet::default(),
+            description: Description::default(),
         }
-    }
-
-    fn peek(&mut self, lexer: &mut Lexer<'a>) -> Option<&LexerItem<'a>> {
-        if self.peeked.is_none() {
-            self.peeked = self.next(lexer);
-        }
-        self.peeked.as_ref()
     }
 }
 
-pub struct Parser<'a> {
-    lexer: Lexer<'a>,
-    peeker: Peeker<'a>,
-}
-
-impl<'a> Parser<'a> {
-    pub fn new(input: &[u8], filename: Option<String>) -> Parser {
-        Parser {
-            lexer: Lexer::new(input, filename),
-            peeker: Default::default(),
-        }
-    }
-
-    fn handle_eof_and_comments(
-        &mut self,
-        msg_type: &'static str,
-    ) -> Result<Result<(Lexeme<'a>, lexer::Pos), LexerError>, ParseError> {
-        loop {
-            let item = self.peeker.next(&mut self.lexer);
-            if item.is_none() {
-                return Err(ParseError::eof(
-                    format!("Expected {}, got EOF", msg_type),
-                    &self.lexer,
-                ));
-            } else {
-                let item = item.unwrap();
-                if let Ok((lexeme, _)) = &item {
-                    match lexeme {
-                        Lexeme::Comment(_) => continue,
-                        _ => return Ok(item),
-                    }
-                } else {
-                    return Ok(item);
-                }
-            }
-        }
-    }
-
-    fn expr_to_expr(lexeme: Lexeme<'a>) -> Expr<'a> {
-        lexeme.check();
-        if let Lexeme::Expr(items) = lexeme {
-            Expr(
-                items
-                    .iter()
-                    .map(|item| match item {
-                        Lexeme::Literal(v) | Lexeme::Escape(v) => Term::Literal(v),
-                        Lexeme::VarRef(_, v) => Term::Reference(v),
-                        _ => unreachable!(),
-                    })
-                    .collect(),
-            )
-        } else {
-            panic!("Unexpected lexeme {}", lexeme);
-        }
-    }
-
-    fn expect_identifier(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        self.handle_eof_and_comments("identifier").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Identifier(_) => Ok(token),
-                    _ => Err(ParseError::new(
-                        format!("Expected identifier, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
-    }
-
-    fn expect_identifier_eating_indent(&mut self) -> Result<Lexeme<'a>, ParseError> {
-        let mut stop = true;
-        loop {
-            let result = self.handle_eof_and_comments("identifier").and_then(|res| {
-                res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                    .and_then(|(token, pos)| match token {
-                        Lexeme::Indent => {
-                            stop = false;
-                            Ok(token)
-                        }
-                        Lexeme::Identifier(_) => Ok(token),
-                        _ => Err(ParseError::new(
-                            format!("Expected identifier, got {}", token),
-                            pos,
-                            &self.lexer,
-                        )),
-                    })
-            });
-            if stop {
-                return result;
-            }
-            stop = true;
-        }
-    }
-
-    fn expect_value(&mut self) -> Result<Expr<'a>, ParseError> {
-        self.handle_eof_and_comments("value").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Expr(_) => Ok(Parser::expr_to_expr(token)),
-                    _ => Err(ParseError::new(
-                        format!("Expected value, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
-    }
-
-    fn discard_indent(&mut self) -> Result<(), ParseError> {
-        self.handle_eof_and_comments("indent").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Indent => Ok(()),
-                    _ => Err(ParseError::new(
-                        format!("Expected indent, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
-    }
-
-    fn discard_newline(&mut self) -> Result<(), ParseError> {
-        self.handle_eof_and_comments("newline").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Newline => Ok(()),
-                    _ => Err(ParseError::new(
-                        format!("Expected newline, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
-    }
-
-    fn discard_assignment(&mut self) -> Result<(), ParseError> {
-        self.handle_eof_and_comments("=").and_then(|res| {
-            res.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))
-                .and_then(|(token, pos)| match token {
-                    Lexeme::Equals => Ok(()),
-                    _ => Err(ParseError::new(
-                        format!("Expected =, got {}", token),
-                        pos,
-                        &self.lexer,
-                    )),
-                })
-        })
-    }
-
-    fn read_assignment(&mut self) -> Result<(&'a [u8], Expr<'a>), ParseError> {
-        let var = self.expect_identifier_eating_indent()?;
-        self.discard_assignment()?;
-        let value = self.expect_value()?;
-        Ok((var.value(), value))
-    }
-
-    // really need a peekable overlay while allowing us to access the lexer whenever we want
-    // (mostly for errors).
-    fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
-        let identifier = self.expect_identifier()?;
-        self.discard_newline()?;
-
-        let mut bindings = HashMap::new();
-        let mut at_least_one = false;
-        loop {
-            let item = self.peeker.peek(&mut self.lexer);
-            if item.is_none() {
-                if at_least_one {
-                    break;
-                } else {
-                    return Err(ParseError::eof(
-                        format!("Expected indent, got EOF"),
-                        &self.lexer,
-                    ));
-                }
-            }
-
-            let item = item.unwrap();
-            eprintln!("Continuing loop with {:?}", item);
-            if let Ok((lexeme, _)) = &item {
-                match lexeme {
-                    Lexeme::Newline | Lexeme::Comment(_) => {
-                        self.peeker.next(&mut self.lexer);
-                        // continue looping.
-                    }
-                    Lexeme::Indent => {
-                        // is an indent, do the rest of this loop.
-                        at_least_one = true;
-                        self.discard_indent()?;
-                        let (var, value) = self.read_assignment()?;
-                        // TODO: Move this to a semantic pass.
-                        if !allowed_rule_variable(var) {
-                            return Err(ParseError::new(
-                                format!(
-                                    "unexpected variable '{}'",
-                                    std::str::from_utf8(var).unwrap_or("invalid utf-8")
-                                ),
-                                self.lexer.current_pos(),
-                                &self.lexer,
-                            ));
-                        }
-                        bindings.insert(var, value);
-                    }
-                    _ => {
-                        // Done with this rule since we encountered a non-indent.
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(Rule {
-            name: identifier.value(),
-            bindings,
-        })
-    }
-
-    fn parse_build(&mut self) -> Result<Build<'a>, ParseError> {
-        // TODO: Support all kinds of optional outputs and dependencies.
-        #[derive(Debug, PartialEq, Eq)]
-        enum Read {
-            Outputs,
-            Rule,
-            Inputs,
-        };
-
-        let mut outputs: Vec<Expr<'a>> = Vec::new();
-        let mut inputs: Vec<Expr<'a>> = Vec::new();
-        let mut rule = None;
-        let mut state = Read::Outputs;
-        let mut first_line_pos = None;
-        while let Some(result) = self.peeker.next(&mut self.lexer) {
-            let (token, pos) =
-                result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
-            if first_line_pos.is_none() {
-                first_line_pos = Some(pos);
-            }
-            match state {
-                Read::Outputs => match token {
-                    Lexeme::Expr(_) => {
-                        outputs.push(Parser::expr_to_expr(token));
-                    }
-                    Lexeme::Colon => {
-                        if outputs.is_empty() {
-                            return Err(ParseError::new(
-                                "Expected at least one output for build",
-                                pos,
-                                &self.lexer,
-                            ));
-                        }
-                        state = Read::Rule;
-                    }
-                    _ => {
-                        return Err(ParseError::new(
-                            format!(
-                                "Expected another output or {}, got {}",
-                                Lexeme::Colon,
-                                token
-                            ),
-                            pos,
-                            &self.lexer,
-                        ));
-                    }
-                },
-                Read::Rule => match token {
-                    Lexeme::Identifier(v) => {
-                        rule = Some(v);
-                        state = Read::Inputs;
-                    }
-                    _ => {
-                        return Err(ParseError::new(
-                            format!("Expected rule name, got {}", token),
-                            pos,
-                            &self.lexer,
-                        ));
-                    }
-                },
-                Read::Inputs => match token {
-                    Lexeme::Expr(_) => {
-                        inputs.push(Parser::expr_to_expr(token));
-                    }
-                    Lexeme::Newline => {
-                        break;
-                    }
-                    _ => {
-                        return Err(ParseError::new(
-                            format!("Expected input or {}, got {}", Lexeme::Newline, token),
-                            pos,
-                            &self.lexer,
-                        ));
-                    }
-                },
-            }
-        }
-
-        // TODO: Read remaining lines as bindings as long as indents are encountered.
-
-        // EOF is OK as long as our state machine is done.
-        if state == Read::Inputs {
-            Ok(Build {
-                rule: rule.take().unwrap(),
-                inputs,
-                outputs,
-            })
-        } else {
-            Err(ParseError::eof(
-                "unexpected EOF in the middle of a build edge",
-                &self.lexer,
+impl ParseState {
+    fn add_rule(&mut self, rule: past::Rule) -> Result<(), ProcessingError> {
+        if self.known_rules.get(&rule.name).is_some() {
+            // TODO: Also add line/col information from token position, which isn't being preserved
+            // right now!
+            Err(ProcessingError::DuplicateRule(
+                std::str::from_utf8(&rule.name)?.to_owned(),
             ))
+        } else {
+            self.known_rules.insert(rule.name.clone(), rule);
+            Ok(())
         }
     }
 
-    pub fn parse(mut self) -> Result<Description<'a>, ParseError> {
-        let mut description = Description {
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: Vec::new(),
-            builds: Vec::new(),
-            includes: Vec::new(),
-        };
-        // Focus here on handling bindings at the top-level, in rules and in builds.
-        while let Some(result) = self.peeker.next(&mut self.lexer) {
-            let (token, pos) =
-                result.map_err(|lex_err| ParseError::from_lexer_error(lex_err, &self.lexer))?;
-            match token {
-                Lexeme::Identifier(ident) => {
-                    self.discard_assignment()?;
-                    let value = self.expect_value()?;
-                    // Top-level bindings are evaluated immediately.
-                    let value = {
-                        let b = description.bindings.borrow();
-                        value.eval(&b)
-                    };
-                    description.bindings.borrow_mut().add_binding(ident, value);
-                }
-                Lexeme::Rule => {
-                    description.rules.push(self.parse_rule()?);
-                }
-                Lexeme::Build => {
-                    description.builds.push(self.parse_build()?);
-                }
-                Lexeme::Include => {
-                    let path = self.expect_value()?;
-                    description.includes.push(Include { path });
-                    self.discard_newline()?;
-                }
-                Lexeme::Newline => {}
-                Lexeme::Comment(_) => {}
-                _ => {
-                    return Err(ParseError::new(
-                        format!("Unhandled token {:?}", token),
-                        pos,
-                        &self.lexer,
-                    ));
+    fn add_build_edge(
+        &mut self,
+        build: past::Build,
+        top: Rc<RefCell<Env>>,
+    ) -> Result<(), ProcessingError> {
+        let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
+        // TODO: Use the environment in scope + the rule environment.
+        let empty_env = Env::default();
+
+        for output in &build.outputs {
+            let output = output.eval(&empty_env);
+            if self.outputs_seen.contains(&output) {
+                // TODO: Also add line/col information from token position, which isn't being preserved
+                // right now!
+                return Err(ProcessingError::DuplicateOutput(
+                    String::from_utf8(output)?.to_owned(),
+                ));
+            }
+            self.outputs_seen.insert(output.clone());
+            evaluated_outputs.push(output);
+        }
+
+        let evaluated_inputs: Vec<Vec<u8>> =
+            build.inputs.iter().map(|i| i.eval(&empty_env)).collect();
+
+        // TODO: Note that any rule/build level binding can refer to these variables, so the entire
+        // build statement evaluation must have this environment available. In addition, these are
+        // "shell quoted" when expanding within a command.
+        // TODO: Get environment from rule!
+        let mut env = Env::with_parent(top);
+        env.add_binding(b"out".to_vec(), space_seperated_paths(&evaluated_outputs));
+        env.add_binding(b"in".to_vec(), space_seperated_paths(&evaluated_inputs));
+
+        let action = {
+            match build.rule.as_slice() {
+                [112, 104, 111, 110, 121] => Action::Phony,
+                other => {
+                    let rule = self.known_rules.get(other);
+                    if rule.is_none() {
+                        return Err(ProcessingError::UnknownRule(
+                            std::str::from_utf8(&other)?.to_owned(),
+                        ));
+                    }
+
+                    let rule = rule.unwrap();
+                    let command = rule.bindings.get("command".as_bytes());
+                    if command.is_none() {
+                        return Err(ProcessingError::MissingCommand(
+                            std::str::from_utf8(&rule.name)?.to_owned(),
+                        ));
+                    }
+
+                    Action::Command(String::from_utf8(
+                        command.unwrap().eval_for_build(&env, &rule),
+                    )?)
                 }
             }
-        }
-        Ok(description)
+        };
+        self.description.builds.push(Build {
+            action,
+            inputs: evaluated_inputs,
+            outputs: evaluated_outputs,
+        });
+        Ok(())
+    }
+
+    fn into_description(self) -> Description {
+        self.description
     }
 }
 
-const ALLOWED_RULE_VARIABLES: &[&[u8]] = &[b"command", b"description"];
+fn parse_single<Error>(
+    contents: &[u8],
+    name: Option<String>,
+    state: &mut ParseState,
+    loader: &mut dyn Loader<Error = Error>,
+) -> Result<(), ProcessingError> {
+    Parser::new(&contents, name).parse(state, loader)?;
+    Ok(())
+}
 
-fn allowed_rule_variable(name: &[u8]) -> bool {
-    ALLOWED_RULE_VARIABLES.contains(&name)
+pub fn build_representation(
+    loader: &mut dyn Loader<Error = std::io::Error>,
+    start: String,
+) -> Result<Description, ProcessingError> {
+    scoped_metric!("parse");
+    let mut state = ParseState::default();
+    let contents = loader.load(None, &start.as_bytes())?;
+    parse_single(&contents, Some(start), &mut state, loader)?;
+    Ok(state.into_description())
 }
 
 #[cfg(test)]
-mod parser_test {
-    use super::Parser;
+mod test {
     use insta::assert_debug_snapshot;
 
-    #[test]
-    fn test_simple() {
-        let input = r#"
-rule cc
-    command = gcc -c foo.c
+    use super::{Loader, ProcessingError};
+    use ninja_parse::{ast as past, env::Env};
+    use std::{cell::RefCell, rc::Rc};
 
-build foo.o: cc foo.c"#;
-        // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
-        // are encountered.
-        let parser = Parser::new(input.as_bytes(), None);
-        let ast = parser.parse().expect("valid parse");
+    struct DummyLoader {}
+    impl Loader for DummyLoader {
+        fn load(&mut self, path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+            unimplemented!();
+        }
+    }
+    // Small wrapper to supply a dummy loader when we know no includes are present.
+    fn to_description(ast: past::Description) -> Result<Description, ProcessingError> {
+        let mut loader = DummyLoader {};
+        super::to_description(&mut loader, ast);
+    }
+
+    macro_rules! rule {
+        ($name:literal) => {
+            past::Rule {
+                name: $name.as_bytes(),
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![past::Term::Literal(b"")]),
+                )]
+                .into_iter()
+                .collect(),
+            }
+        };
+        ($name:literal, $command:literal) => {
+            past::Rule {
+                name: $name.as_bytes(),
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![past::Term::Literal($command.as_bytes())]),
+                )]
+                .into_iter()
+                .collect(),
+            }
+        };
+    }
+
+    #[test]
+    fn no_rule_named_phony() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![rule!["phony"]],
+            builds: vec![],
+        };
+        let result = to_description(desc);
+        let err = result.unwrap_err();
+        assert!(matches!(err, ProcessingError::DuplicateRule(_)));
+    }
+
+    #[test]
+    fn err_duplicate_rule() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![
+                rule!("link", "link.exe"),
+                rule!("compile", "compile.exe"),
+                rule!("link", "link.exe"),
+            ],
+            builds: vec![],
+        };
+        let err = to_description(desc).unwrap_err();
+        assert!(matches!(err, ProcessingError::DuplicateRule(_)));
+    }
+
+    #[test]
+    fn duplicate_output() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![],
+            builds: vec![
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                },
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                },
+            ],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::DuplicateOutput(_)
+        ));
+    }
+
+    #[test]
+    fn duplicate_output2() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![],
+            builds: vec![
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"b.txt")]),
+                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                    ],
+                },
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![],
+                    outputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                        past::Expr(vec![past::Term::Literal(b"c.txt")]),
+                    ],
+                },
+            ],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::DuplicateOutput(_)
+        ));
+    }
+
+    #[test]
+    fn unknown_rule() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![],
+            builds: vec![past::Build {
+                rule: b"baloney",
+                inputs: vec![],
+                outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+            }],
+        };
+        assert!(matches!(
+            to_description(desc).unwrap_err(),
+            ProcessingError::UnknownRule(_)
+        ));
+    }
+
+    #[test]
+    fn success() {
+        let desc = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![
+                rule!["link", "link.exe"],
+                rule!["cc", "clang"],
+                rule!["unused"],
+            ],
+            builds: vec![
+                past::Build {
+                    rule: b"phony",
+                    inputs: vec![past::Expr(vec![past::Term::Literal(b"source.txt")])],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                },
+                past::Build {
+                    rule: b"cc",
+                    inputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"hello.c")]),
+                        past::Expr(vec![past::Term::Literal(b"hello.h")]),
+                    ],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello.o")])],
+                },
+                past::Build {
+                    rule: b"link",
+                    inputs: vec![
+                        past::Expr(vec![past::Term::Literal(b"hello.o")]),
+                        past::Expr(vec![past::Term::Literal(b"my_shared_lib.so")]),
+                    ],
+                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello")])],
+                },
+            ],
+        };
+        let ast = to_description(desc).unwrap();
         assert_debug_snapshot!(ast);
     }
 
     #[test]
-    fn test_rule_identifier_fail() {
-        for (input, expected_col) in &[("rule cc:", 8), ("rule", 5), ("rule\n", 5)] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let err = parser.parse().unwrap_err();
-            assert_eq!(err.position.line, 1);
-            assert_eq!(err.position.column, *expected_col);
-        }
-    }
-
-    #[test]
-    fn test_rule_missing_command() {
-        for (input, expected_col, expected_token) in &[
-            (
-                // Expect indent
-                r#"rule cc
-command"#,
-                8,
-                "=",
-            ),
-            (
-                r#"rule cc
-  command"#,
-                10,
-                "=",
-            ),
-            (
-                r#"rule cc
-  command ="#,
-                12,
-                "value",
-            ),
-            (
-                r#"rule cc
-  command="#,
-                11,
-                "value",
-            ),
-            (
-                r#"rule cc
-  command=
-"#,
-                11,
-                "value",
-            ),
-        ] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let err = parser.parse().unwrap_err();
-            assert_eq!(err.position.line, 2);
-            assert_eq!(err.position.column, *expected_col);
-            assert!(err.message.contains(expected_token));
-        }
-    }
-
-    #[test]
-    fn test_build_no_bindings() {
-        for input in &[
-            "build foo.o: touch",
-            "build foo.o foo.p: touch",
-            "build foo.o foo.p foo.q: touch",
-            "build foo.o foo.p: touch inp1 inp2",
-            r#"build foo.o foo.p: touch inp1 inp2
-build bar.o: touch inp3"#,
-            r#"build foo.o foo.p: touch inp1 inp2
-rule other
-  command = gcc"#,
-        ] {
-            let with_rule = format!(
-                r#"
-rule touch
-  command = touch
-{}"#,
-                input
-            );
-            let parser = Parser::new(with_rule.as_bytes(), None);
-            let ast = parser.parse().expect("valid parse");
-            assert_debug_snapshot!(ast);
-        }
-    }
-
-    #[test]
-    fn test_build_fail_first_line() {
-        for input in &[
-            "build", // just bad
-            r#"build
-"#, // just bad
-            "build: touch", // missing output
-            "build foo.o touch", // no colon
-            "build foo.o: ", // no rule
-        ] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let _ = parser.parse().expect_err("parse should fail");
-        }
+    fn in_and_out_basic() {
+        let ast = past::Description {
+            includes: vec![],
+            bindings: Rc::new(RefCell::new(Env::default())),
+            rules: vec![past::Rule {
+                name: b"echo",
+                bindings: vec![(
+                    "command".as_bytes(),
+                    past::Expr(vec![
+                        past::Term::Literal(b"echo "),
+                        past::Term::Reference(b"in"),
+                        past::Term::Literal(b" makes "),
+                        past::Term::Reference(b"out"),
+                    ]),
+                )]
+                .into_iter()
+                .collect(),
+            }],
+            builds: vec![past::Build {
+                rule: b"echo",
+                inputs: vec![
+                    past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                    past::Expr(vec![past::Term::Literal(b"b.txt")]),
+                ],
+                outputs: vec![
+                    past::Expr(vec![past::Term::Literal(b"c.txt")]),
+                    past::Expr(vec![past::Term::Literal(b"d.txt")]),
+                ],
+            }],
+        };
+        let ast = to_description(ast).unwrap();
+        assert_debug_snapshot!(ast);
     }
 }

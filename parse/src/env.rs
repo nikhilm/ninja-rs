@@ -53,7 +53,7 @@ impl Env {
     // however to encode input-related life times in rules and bindings until canonicalization.
     pub fn lookup_for_build<'b, 'c, V: Into<&'c [u8]>>(
         &self,
-        rule: &Rule<'b>,
+        rule: &Rule,
         name: V,
     ) -> Option<Vec<u8>> {
         let x = name.into();
@@ -61,7 +61,7 @@ impl Env {
         eprintln!("{}", self);
         self.bindings.get(x).map(|x| x.clone()).or_else(|| {
             // TODO: Deal with  the possibility of recursion.
-            let rule_val = rule.bindings.get(&x);
+            let rule_val = rule.bindings.get(x);
             if let Some(rule_val) = rule_val {
                 return Some(rule_val.eval_for_build(self, rule));
             } else {

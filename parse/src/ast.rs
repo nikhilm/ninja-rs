@@ -1,54 +1,41 @@
-use crate::env::Env;
+use super::env::Env;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub type BytesRef<'a> = &'a [u8];
 
-/*
-struct Binding {
-    name: _,
-    expr: _,
-}
-*/
-
 #[derive(Debug)]
-pub struct Description<'a> {
-    pub bindings: Rc<RefCell<Env>>,
-    pub rules: Vec<Rule<'a>>,
-    pub builds: Vec<Build<'a>>,
-    // defaults: _,
-    // pools: _,
+pub enum Term {
+    Literal(Vec<u8>),
+    Reference(Vec<u8>),
 }
 
 #[derive(Debug)]
-pub enum Term<'a> {
-    Literal(BytesRef<'a>),
-    Reference(BytesRef<'a>),
-}
+pub struct Expr(pub Vec<Term>);
 
-#[derive(Debug)]
-pub struct Expr<'a>(pub Vec<Term<'a>>);
-
-impl<'a> Expr<'a> {
+impl Expr {
     pub fn eval(&self, env: &Env) -> Vec<u8> {
         let mut result = Vec::new();
         for term in &self.0 {
             match term {
                 Term::Literal(bytes) => result.extend_from_slice(bytes),
                 Term::Reference(name) => {
-                    result.extend(env.lookup(*name).unwrap_or_default());
+                    result.extend(env.lookup(name.as_slice()).unwrap_or_default());
                 }
             }
         }
         result
     }
 
-    pub fn eval_for_build<'b>(&self, env: &Env, rule: &Rule<'b>) -> Vec<u8> {
+    pub fn eval_for_build(&self, env: &Env, rule: &Rule) -> Vec<u8> {
         let mut result = Vec::new();
         for term in &self.0 {
             match term {
                 Term::Literal(bytes) => result.extend_from_slice(bytes),
                 Term::Reference(name) => {
-                    result.extend(env.lookup_for_build(rule, *name).unwrap_or_default());
+                    result.extend(
+                        env.lookup_for_build(rule, name.as_slice())
+                            .unwrap_or_default(),
+                    );
                 }
             }
         }
@@ -57,22 +44,16 @@ impl<'a> Expr<'a> {
 }
 
 #[derive(Debug)]
-pub struct Rule<'a> {
-    pub name: BytesRef<'a>,
-    pub bindings: HashMap<&'a [u8], Expr<'a>>,
+pub struct Rule {
+    pub name: Vec<u8>,
+    pub bindings: HashMap<Vec<u8>, Expr>,
 }
 
 #[derive(Debug)]
-pub struct Build<'a> {
-    pub rule: BytesRef<'a>,
+pub struct Build {
+    pub rule: Vec<u8>,
     // These will become structs once we discriminate inputs and outputs.
-    pub inputs: Vec<Expr<'a>>,
-    pub outputs: Vec<Expr<'a>>,
+    pub inputs: Vec<Expr>,
+    pub outputs: Vec<Expr>,
     // ...
 }
-
-/*
-struct Default {
-    targets: _,
-}
-*/
