@@ -58,7 +58,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         ninja_metrics::enable();
     }
     let mut loader = FileLoader {};
-    let repr = build_representation(&mut loader, config.build_file)?;
+    let repr = build_representation(&mut loader, config.build_file.into_bytes())?;
     // // at this point we should basically have a structure where all commands are fully expanded and
     // // ready to go.
     // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are

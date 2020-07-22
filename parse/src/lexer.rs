@@ -8,15 +8,15 @@ pub struct Pos(usize); // This way, it is only possible to obtain a Pos from a t
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Position {
-    pub filename: Option<String>, // TODO: &str; also, comparing Eq using filenames does not make sense.
+    pub source_name: Option<Vec<u8>>,
     pub line: usize,
     pub column: usize,
 }
 
 impl Position {
-    fn new(filename: Option<String>, line: usize, column: usize) -> Position {
+    fn new(source_name: Option<Vec<u8>>, line: usize, column: usize) -> Position {
         Position {
-            filename,
+            source_name,
             line,
             // Either we are in a state that requires reading arbitrary input, or we are expecting
             // to match the beginning of a declaration/keyword/identifier.
@@ -27,7 +27,7 @@ impl Position {
     #[cfg(test)]
     fn untitled(line: usize, column: usize) -> Position {
         Position {
-            filename: None,
+            source_name: None,
             line,
             column,
         }
@@ -141,7 +141,7 @@ type LexerResult<'a> = Result<Lexeme<'a>, LexerError>;
 
 pub struct Lexer<'a> {
     data: &'a [u8],
-    filename: Option<String>,
+    source_name: Option<Vec<u8>>,
     ch: Option<u8>,
     offset: usize,
     next_offset: usize,
@@ -151,7 +151,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(data: &'a [u8], filename: Option<String>) -> Lexer<'a> {
+    pub fn new(data: &'a [u8], source_name: Option<Vec<u8>>) -> Lexer<'a> {
         let ch = if !data.is_empty() {
             Some(data[0])
         } else {
@@ -159,7 +159,7 @@ impl<'a> Lexer<'a> {
         };
         Lexer {
             data,
-            filename,
+            source_name,
             ch,
             offset: 0,
             next_offset: 1,
@@ -280,13 +280,13 @@ impl<'a> Lexer<'a> {
         }
 
         match self.line_offsets.binary_search(&pos.0) {
-            Ok(idx) => Position::new(self.filename.clone(), idx + 1, 1),
+            Ok(idx) => Position::new(self.source_name.clone(), idx + 1, 1),
             Err(idx) => {
                 // Since 0 is the first element in the vec, nothing can be inserted before that, at
                 // position 0.
                 assert!(idx > 0);
                 Position::new(
-                    self.filename.clone(),
+                    self.source_name.clone(),
                     idx,
                     pos.0 - self.line_offsets[idx - 1] + 1,
                 )
@@ -368,7 +368,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             LexerMode::PathMode => {
-                // parse the next "space separated" filename, which can include escaped colons.
+                // parse the next "space separated" source_name, which can include escaped colons.
                 self.read_path()
             }
             LexerMode::ValueMode => self.read_literal(),
@@ -575,7 +575,7 @@ impl<'a> Lexer<'a> {
 impl<'a> Debug for Lexer<'a> {
     fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
         fmt.debug_struct("Lexer")
-            .field("filename", &self.filename)
+            .field("source_name", &self.source_name)
             .field("ch", &(self.ch.map(|c| c as char)))
             .field("offset", &self.offset)
             .field("next_offset", &self.next_offset)

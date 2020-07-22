@@ -60,8 +60,9 @@ impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{filename}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
-            filename = self.position.filename.as_deref().unwrap_or(""),
+            "{source}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
+            source = std::str::from_utf8(self.position.source_name.as_deref().unwrap_or(&[]))
+                .unwrap_or("invalid utf-8"),
             lineno = self.position.line,
             col = self.position.column,
             msg = self.message,
@@ -99,9 +100,9 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &[u8], filename: Option<String>) -> Parser {
+    pub fn new(input: &[u8], source_name: Option<Vec<u8>>) -> Parser {
         Parser {
-            lexer: Lexer::new(input, filename),
+            lexer: Lexer::new(input, source_name),
             peeker: Default::default(),
         }
     }

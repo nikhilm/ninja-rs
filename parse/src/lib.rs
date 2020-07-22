@@ -172,7 +172,7 @@ impl ParseState {
 
 fn parse_single(
     contents: &[u8],
-    name: Option<String>,
+    name: Option<Vec<u8>>,
     state: &mut ParseState,
     loader: &mut dyn Loader,
 ) -> Result<(), ProcessingError> {
@@ -182,11 +182,11 @@ fn parse_single(
 
 pub fn build_representation(
     loader: &mut dyn Loader,
-    start: String,
+    start: Vec<u8>,
 ) -> Result<Description, ProcessingError> {
     scoped_metric!("parse");
     let mut state = ParseState::default();
-    let contents = loader.load(None, &start.as_bytes())?;
+    let contents = loader.load(None, &start)?;
     parse_single(&contents, Some(start), &mut state, loader)?;
     Ok(state.into_description())
 }
