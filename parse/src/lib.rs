@@ -191,44 +191,40 @@ pub fn build_representation(
     Ok(state.into_description())
 }
 
-/*
 #[cfg(test)]
 mod test {
     use insta::assert_debug_snapshot;
 
-    use super::{ast as past, env::Env, Loader, ProcessingError};
+    use super::{ast as past, env::Env, Loader, ParseState, ProcessingError};
     use std::{cell::RefCell, rc::Rc};
 
-    struct DummyLoader {}
-    impl Loader for DummyLoader {
-        fn load(&mut self, _from: Option<&[u8]>, _load: &[u8]) -> std::io::Result<Vec<u8>> {
-            unimplemented!();
-        }
+    macro_rules! lit {
+        ($name:literal) => {
+            past::Term::Literal($name.to_vec())
+        };
     }
-    // Small wrapper to supply a dummy loader when we know no includes are present.
-    fn to_description(ast: past::Description) -> Result<Description, ProcessingError> {
-        let mut loader = DummyLoader {};
-        super::to_description(&mut loader, ast);
+
+    macro_rules! aref {
+        ($name:literal) => {
+            past::Term::Reference($name.to_vec())
+        };
     }
 
     macro_rules! rule {
         ($name:literal) => {
             past::Rule {
-                name: $name.as_bytes(),
-                bindings: vec![(
-                    "command".to_vec(),
-                    past::Expr(vec![past::Term::Literal(b"".to_vec())]),
-                )]
-                .into_iter()
-                .collect(),
+                name: $name.as_bytes().to_vec(),
+                bindings: vec![(b"command".to_vec(), past::Expr(vec![lit!(b"")]))]
+                    .into_iter()
+                    .collect(),
             }
         };
         ($name:literal, $command:literal) => {
             past::Rule {
-                name: $name.as_bytes(),
+                name: $name.as_bytes().to_vec(),
                 bindings: vec![(
-                    "command".to_vec(),
-                    past::Expr(vec![past::Term::Literal($command.as_bytes().to_vec())]),
+                    b"command".to_vec(),
+                    past::Expr(vec![lit!($command.as_bytes())]),
                 )]
                 .into_iter()
                 .collect(),
@@ -238,18 +234,12 @@ mod test {
 
     #[test]
     fn no_rule_named_phony() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![rule!["phony"]],
-            builds: vec![],
-        };
-        let mut loader = DummyLoader{};
-        let result = build_representation(&mut loader, desc);
-        let err = result.unwrap_err();
+        let mut parse_state = ParseState::default();
+        let err = parse_state.add_rule(rule!["phony"]).unwrap_err();
         assert!(matches!(err, ProcessingError::DuplicateRule(_)));
     }
 
+    /*
     #[test]
     fn err_duplicate_rule() {
         let desc = past::Description {
@@ -276,12 +266,12 @@ mod test {
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                    outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
                 },
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
-                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                    outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
                 },
             ],
         };
@@ -302,16 +292,16 @@ mod test {
                     rule: b"phony",
                     inputs: vec![],
                     outputs: vec![
-                        past::Expr(vec![past::Term::Literal(b"b.txt")]),
-                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
+                        past::Expr(vec![lit!(b"b.txt")]),
+                        past::Expr(vec![lit!(b"a.txt")]),
                     ],
                 },
                 past::Build {
                     rule: b"phony",
                     inputs: vec![],
                     outputs: vec![
-                        past::Expr(vec![past::Term::Literal(b"a.txt")]),
-                        past::Expr(vec![past::Term::Literal(b"c.txt")]),
+                        past::Expr(vec![lit!(b"a.txt")]),
+                        past::Expr(vec![lit!(b"c.txt")]),
                     ],
                 },
             ],
@@ -331,7 +321,7 @@ mod test {
             builds: vec![past::Build {
                 rule: b"baloney",
                 inputs: vec![],
-                outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
             }],
         };
         assert!(matches!(
@@ -353,24 +343,24 @@ mod test {
             builds: vec![
                 past::Build {
                     rule: b"phony",
-                    inputs: vec![past::Expr(vec![past::Term::Literal(b"source.txt")])],
-                    outputs: vec![past::Expr(vec![past::Term::Literal(b"a.txt")])],
+                    inputs: vec![past::Expr(vec![lit!(b"source.txt")])],
+                    outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
                 },
                 past::Build {
                     rule: b"cc",
                     inputs: vec![
-                        past::Expr(vec![past::Term::Literal(b"hello.c")]),
-                        past::Expr(vec![past::Term::Literal(b"hello.h")]),
+                        past::Expr(vec![lit!(b"hello.c")]),
+                        past::Expr(vec![lit!(b"hello.h")]),
                     ],
-                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello.o")])],
+                    outputs: vec![past::Expr(vec![lit!(b"hello.o")])],
                 },
                 past::Build {
                     rule: b"link",
                     inputs: vec![
-                        past::Expr(vec![past::Term::Literal(b"hello.o")]),
-                        past::Expr(vec![past::Term::Literal(b"my_shared_lib.so")]),
+                        past::Expr(vec![lit!(b"hello.o")]),
+                        past::Expr(vec![lit!(b"my_shared_lib.so")]),
                     ],
-                    outputs: vec![past::Expr(vec![past::Term::Literal(b"hello")])],
+                    outputs: vec![past::Expr(vec![lit!(b"hello")])],
                 },
             ],
         };
@@ -384,33 +374,33 @@ mod test {
             includes: vec![],
             bindings: Rc::new(RefCell::new(Env::default())),
             rules: vec![past::Rule {
-                name: b"echo",
+                name: b"echo".to_vec(),
                 bindings: vec![(
                     "command".as_bytes(),
                     past::Expr(vec![
-                        past::Term::Literal(b"echo "),
-                        past::Term::Reference(b"in"),
-                        past::Term::Literal(b" makes "),
-                        past::Term::Reference(b"out"),
+                        lit!(b"echo "),
+                        aref!(b"in"),
+                        lit!(b" makes "),
+                        aref!(b"out"),
                     ]),
                 )]
                 .into_iter()
                 .collect(),
             }],
             builds: vec![past::Build {
-                rule: b"echo",
+                rule: b"echo".to_vec(),
                 inputs: vec![
-                    past::Expr(vec![past::Term::Literal(b"a.txt")]),
-                    past::Expr(vec![past::Term::Literal(b"b.txt")]),
+                    past::Expr(vec![lit!(b"a.txt")]),
+                    past::Expr(vec![lit!(b"b.txt")]),
                 ],
                 outputs: vec![
-                    past::Expr(vec![past::Term::Literal(b"c.txt")]),
-                    past::Expr(vec![past::Term::Literal(b"d.txt")]),
+                    past::Expr(vec![lit!(b"c.txt")]),
+                    past::Expr(vec![lit!(b"d.txt")]),
                 ],
             }],
         };
         let ast = to_description(ast).unwrap();
         assert_debug_snapshot!(ast);
     }
+    */
 }
-*/

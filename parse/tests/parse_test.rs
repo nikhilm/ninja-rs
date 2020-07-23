@@ -1,15 +1,21 @@
 use insta::{assert_debug_snapshot, assert_display_snapshot};
-use ninja_parse::build_representation;
-use std::{fs, os::unix::ffi::OsStrExt};
+use ninja_parse::{build_representation, Loader};
+use std::{ffi::OsStr, fs, os::unix::ffi::OsStrExt, path::Path};
+
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
-use std::path::Path;
 
 use globwalk::{FileType, GlobWalkerBuilder};
 
 use insta::Settings;
 
-mod common;
+pub struct SimpleFileLoader {}
 
+impl Loader for SimpleFileLoader {
+    fn load(&mut self, from: Option<&[u8]>, load: &[u8]) -> std::io::Result<Vec<u8>> {
+        assert!(from.is_none());
+        fs::read(OsStr::from_bytes(load))
+    }
+}
 pub fn glob_exec<F: FnMut(&Path)>(base: &Path, pattern: &str, mut f: F) {
     let walker = GlobWalkerBuilder::new(base, pattern)
         .case_insensitive(true)
@@ -45,13 +51,13 @@ fn test_inputs() {
         .canonicalize()
         .unwrap();
 
-    std::env::set_current_dir(&base);
+    std::env::set_current_dir(&base).unwrap();
 
     glob_exec(&base, "parse_inputs/*.ninja", |path| {
         // Make input paths relative so running tests on different machines won't mess them up.
         let path = path.strip_prefix(&base).unwrap();
         eprintln!("File {:?}", path);
-        let mut loader = common::SimpleFileLoader {};
+        let mut loader = SimpleFileLoader {};
 
         let res = build_representation(&mut loader, path.as_os_str().as_bytes().to_vec());
         match res {

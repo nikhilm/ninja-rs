@@ -1,0 +1,22 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/missing_toplevel_var.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo ",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    102,
+                    111,
+                    111,
+                ],
+            ],
+        },
+    ],
+}
