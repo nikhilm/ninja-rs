@@ -1,7 +1,5 @@
 use super::env::Env;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-
-pub type BytesRef<'a> = &'a [u8];
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum Term {

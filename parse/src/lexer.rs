@@ -1057,7 +1057,6 @@ rule"#,
                 &res[..2],
                 &[Ok(Lexeme::Identifier(b"a")), Ok(Lexeme::Equals)]
             );
-            dbg!(input);
             let actual = res[2].as_ref().expect("valid lexeme");
             assert_eq!(actual, expected);
         }

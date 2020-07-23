@@ -274,7 +274,6 @@ impl<'a> Parser<'a> {
             }
 
             let item = item.unwrap();
-            eprintln!("Continuing loop with {:?}", item);
             if let Ok((lexeme, _)) = &item {
                 match lexeme {
                     Lexeme::Newline | Lexeme::Comment(_) => {
@@ -413,7 +412,7 @@ impl<'a> Parser<'a> {
         state: &mut ParseState,
         _loader: &mut dyn Loader,
     ) -> Result<(), ProcessingError> {
-        let mut bindings = Rc::new(RefCell::new(Env::default()));
+        let bindings = Rc::new(RefCell::new(Env::default()));
         // Focus here on handling bindings at the top-level, in rules and in builds.
         while let Some(result) = self.peeker.next(&mut self.lexer) {
             let (token, pos) =
@@ -433,7 +432,7 @@ impl<'a> Parser<'a> {
                     state.add_rule(self.parse_rule()?)?;
                 }
                 Lexeme::Build => {
-                    state.add_build_edge(self.parse_build()?, bindings.clone());
+                    state.add_build_edge(self.parse_build()?, bindings.clone())?;
                 }
                 // Lexeme::Include => {
                 //     let path = self.expect_value()?;

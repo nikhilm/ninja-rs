@@ -4,8 +4,7 @@ use ast as past;
 use ninja_metrics::scoped_metric;
 use std::{
     cell::RefCell,
-    collections::{hash_map::Entry, HashMap, HashSet},
-    path::Path,
+    collections::{HashMap, HashSet},
     rc::Rc,
     str::Utf8Error,
     string::FromUtf8Error,
@@ -193,10 +192,8 @@ pub fn build_representation(
 
 #[cfg(test)]
 mod test {
-    use insta::assert_debug_snapshot;
 
-    use super::{ast as past, env::Env, Loader, ParseState, ProcessingError};
-    use std::{cell::RefCell, rc::Rc};
+    use super::{ast as past, ParseState, ProcessingError};
 
     macro_rules! lit {
         ($name:literal) => {

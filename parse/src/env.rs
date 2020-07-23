@@ -36,8 +36,6 @@ impl Env {
 
     pub fn lookup<'a, V: Into<&'a [u8]>>(&self, name: V) -> Option<Vec<u8>> {
         let x = name.into();
-        dbg!(std::str::from_utf8(&x).unwrap());
-        eprintln!("{}", self);
         self.bindings
             .get(x)
             .map(|x| x.clone())
@@ -57,8 +55,6 @@ impl Env {
         name: V,
     ) -> Option<Vec<u8>> {
         let x = name.into();
-        dbg!(std::str::from_utf8(&x).unwrap());
-        eprintln!("{}", self);
         self.bindings.get(x).map(|x| x.clone()).or_else(|| {
             // TODO: Deal with  the possibility of recursion.
             let rule_val = rule.bindings.get(x);
