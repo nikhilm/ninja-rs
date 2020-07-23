@@ -8,3 +8,6 @@ rule bar
   # one word with no space
   command = foo$
       bar
+
+build x: foo
+build y: bar

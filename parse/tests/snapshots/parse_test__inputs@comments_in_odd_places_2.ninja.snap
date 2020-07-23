@@ -1,51 +1,8 @@
 ---
 source: parse/tests/parse_test.rs
 expression: ast
-input_file: parse/tests/inputs/comments_in_odd_places_2.ninja
+input_file: parse/tests/parse_inputs/comments_in_odd_places_2.ninja
 ---
 Description {
-    bindings: RefCell {
-        value: Env {
-            parent: None,
-            bindings: {},
-        },
-    },
-    rules: [
-        Rule {
-            name: [
-                102,
-                111,
-                111,
-            ],
-            bindings: {
-                [
-                    99,
-                    111,
-                    109,
-                    109,
-                    97,
-                    110,
-                    100,
-                ]: Expr(
-                    [
-                        Literal(
-                            [
-                                102,
-                                111,
-                                111,
-                                32,
-                            ],
-                        ),
-                        Literal(
-                            [
-                                32,
-                            ],
-                        ),
-                    ],
-                ),
-            },
-        },
-    ],
     builds: [],
-    includes: [],
 }

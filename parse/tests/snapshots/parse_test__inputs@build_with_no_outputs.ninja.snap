@@ -1,8 +1,8 @@
 ---
 source: parse/tests/parse_test.rs
 expression: e
-input_file: parse/tests/inputs/build_with_no_outputs.ninja
+input_file: parse/tests/parse_inputs/build_with_no_outputs.ninja
 ---
-/home/nsmnikhil/ninja-rs/parse/tests/inputs/build_with_no_outputs.ninja:1:6: Expected at least one output for build
+parse_inputs/build_with_no_outputs.ninja:1:6: Expected at least one output for build
 build: phony
      ^ near here

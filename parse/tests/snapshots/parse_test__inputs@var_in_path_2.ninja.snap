@@ -1,107 +1,33 @@
 ---
 source: parse/tests/parse_test.rs
 expression: ast
-input_file: parse/tests/inputs/var_in_path_2.ninja
+input_file: parse/tests/parse_inputs/var_in_path_2.ninja
 ---
 Description {
-    bindings: RefCell {
-        value: Env {
-            parent: None,
-            bindings: {},
-        },
-    },
-    rules: [
-        Rule {
-            name: [
-                101,
-                99,
-                104,
-                111,
-            ],
-            bindings: {
-                [
-                    99,
-                    111,
-                    109,
-                    109,
-                    97,
-                    110,
-                    100,
-                ]: Expr(
-                    [
-                        Literal(
-                            [
-                                101,
-                                99,
-                                104,
-                                111,
-                                32,
-                            ],
-                        ),
-                        Reference(
-                            [
-                                111,
-                                117,
-                                116,
-                            ],
-                        ),
-                    ],
-                ),
-            },
-        },
-    ],
     builds: [
         Build {
-            rule: [
-                101,
-                99,
-                104,
-                111,
-            ],
+            action: Command(
+                "echo a:colon",
+            ),
             inputs: [
-                Expr(
-                    [
-                        Literal(
-                            [
-                                58,
-                            ],
-                        ),
-                        Literal(
-                            [
-                                105,
-                                122,
-                                101,
-                            ],
-                        ),
-                    ],
-                ),
+                [
+                    58,
+                    105,
+                    122,
+                    101,
+                ],
             ],
             outputs: [
-                Expr(
-                    [
-                        Literal(
-                            [
-                                97,
-                            ],
-                        ),
-                        Literal(
-                            [
-                                58,
-                            ],
-                        ),
-                        Literal(
-                            [
-                                99,
-                                111,
-                                108,
-                                111,
-                                110,
-                            ],
-                        ),
-                    ],
-                ),
+                [
+                    97,
+                    58,
+                    99,
+                    111,
+                    108,
+                    111,
+                    110,
+                ],
             ],
         },
     ],
-    includes: [],
 }

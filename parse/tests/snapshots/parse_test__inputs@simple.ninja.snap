@@ -1,8 +1,8 @@
 ---
 source: parse/tests/parse_test.rs
-expression: err
-input_file: parse/tests/inputs/simple.ninja
+expression: e
+input_file: parse/tests/parse_inputs/simple.ninja
 ---
-/home/nsmnikhil/ninja-rs/parse/tests/inputs/simple.ninja:2:5: Expected identifier, got newline
+parse_inputs/simple.ninja:2:5: Expected identifier, got newline
 rule
     ^ near here

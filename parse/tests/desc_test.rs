@@ -1,5 +1,5 @@
 use insta::{assert_debug_snapshot, assert_display_snapshot};
-use ninja_parse::{build_representation, Loader, Parser};
+use ninja_parse::{build_representation, Loader};
 use std::fs;
 
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
@@ -31,6 +31,7 @@ pub fn glob_exec<F: FnMut(&Path)>(base: &Path, pattern: &str, mut f: F) {
 }
 /* end */
 
+/*
 struct FileLoader {}
 impl Loader for FileLoader {
     fn load(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
@@ -61,3 +62,5 @@ fn test_inputs() {
         };
     });
 }
+*/
+*/

@@ -191,17 +191,17 @@ pub fn build_representation(
     Ok(state.into_description())
 }
 
+/*
 #[cfg(test)]
 mod test {
     use insta::assert_debug_snapshot;
 
-    use super::{Loader, ProcessingError};
-    use ninja_parse::{ast as past, env::Env};
+    use super::{ast as past, env::Env, Loader, ProcessingError};
     use std::{cell::RefCell, rc::Rc};
 
     struct DummyLoader {}
     impl Loader for DummyLoader {
-        fn load(&mut self, path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+        fn load(&mut self, _from: Option<&[u8]>, _load: &[u8]) -> std::io::Result<Vec<u8>> {
             unimplemented!();
         }
     }
@@ -216,8 +216,8 @@ mod test {
             past::Rule {
                 name: $name.as_bytes(),
                 bindings: vec![(
-                    "command".as_bytes(),
-                    past::Expr(vec![past::Term::Literal(b"")]),
+                    "command".to_vec(),
+                    past::Expr(vec![past::Term::Literal(b"".to_vec())]),
                 )]
                 .into_iter()
                 .collect(),
@@ -227,8 +227,8 @@ mod test {
             past::Rule {
                 name: $name.as_bytes(),
                 bindings: vec![(
-                    "command".as_bytes(),
-                    past::Expr(vec![past::Term::Literal($command.as_bytes())]),
+                    "command".to_vec(),
+                    past::Expr(vec![past::Term::Literal($command.as_bytes().to_vec())]),
                 )]
                 .into_iter()
                 .collect(),
@@ -244,7 +244,8 @@ mod test {
             rules: vec![rule!["phony"]],
             builds: vec![],
         };
-        let result = to_description(desc);
+        let mut loader = DummyLoader{};
+        let result = build_representation(&mut loader, desc);
         let err = result.unwrap_err();
         assert!(matches!(err, ProcessingError::DuplicateRule(_)));
     }
@@ -412,3 +413,4 @@ mod test {
         assert_debug_snapshot!(ast);
     }
 }
+*/

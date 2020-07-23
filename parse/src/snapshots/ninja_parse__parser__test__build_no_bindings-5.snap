@@ -1,0 +1,65 @@
+---
+source: parse/src/parser.rs
+expression: ast
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "touch",
+            ),
+            inputs: [
+                [
+                    105,
+                    110,
+                    112,
+                    49,
+                ],
+                [
+                    105,
+                    110,
+                    112,
+                    50,
+                ],
+            ],
+            outputs: [
+                [
+                    102,
+                    111,
+                    111,
+                    46,
+                    111,
+                ],
+                [
+                    102,
+                    111,
+                    111,
+                    46,
+                    112,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "touch",
+            ),
+            inputs: [
+                [
+                    105,
+                    110,
+                    112,
+                    51,
+                ],
+            ],
+            outputs: [
+                [
+                    98,
+                    97,
+                    114,
+                    46,
+                    111,
+                ],
+            ],
+        },
+    ],
+}

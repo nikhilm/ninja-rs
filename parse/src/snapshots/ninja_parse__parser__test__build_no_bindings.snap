@@ -1,0 +1,23 @@
+---
+source: parse/src/parser.rs
+expression: ast
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "touch",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    102,
+                    111,
+                    111,
+                    46,
+                    111,
+                ],
+            ],
+        },
+    ],
+}

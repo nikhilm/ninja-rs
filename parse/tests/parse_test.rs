@@ -1,12 +1,14 @@
 use insta::{assert_debug_snapshot, assert_display_snapshot};
-use ninja_parse::Parser;
-use std::fs;
+use ninja_parse::build_representation;
+use std::{fs, os::unix::ffi::OsStrExt};
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
 use std::path::Path;
 
 use globwalk::{FileType, GlobWalkerBuilder};
 
 use insta::Settings;
+
+mod common;
 
 pub fn glob_exec<F: FnMut(&Path)>(base: &Path, pattern: &str, mut f: F) {
     let walker = GlobWalkerBuilder::new(base, pattern)
@@ -43,11 +45,15 @@ fn test_inputs() {
         .canonicalize()
         .unwrap();
 
+    std::env::set_current_dir(&base);
+
     glob_exec(&base, "parse_inputs/*.ninja", |path| {
+        // Make input paths relative so running tests on different machines won't mess them up.
+        let path = path.strip_prefix(&base).unwrap();
         eprintln!("File {:?}", path);
-        let input = fs::read(path).unwrap();
-        let parser = Parser::new(&input, Some(path.as_os_str().to_str().unwrap().to_string()));
-        let res = parser.parse();
+        let mut loader = common::SimpleFileLoader {};
+
+        let res = build_representation(&mut loader, path.as_os_str().as_bytes().to_vec());
         match res {
             Ok(ast) => assert_debug_snapshot!(ast),
             Err(e) => assert_display_snapshot!(e),

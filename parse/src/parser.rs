@@ -411,7 +411,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(
         mut self,
         state: &mut ParseState,
-        loader: &mut dyn Loader,
+        _loader: &mut dyn Loader,
     ) -> Result<(), ProcessingError> {
         let mut bindings = Rc::new(RefCell::new(Env::default()));
         // Focus here on handling bindings at the top-level, in rules and in builds.
@@ -462,9 +462,24 @@ fn allowed_rule_variable(name: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod parser_test {
-    use super::Parser;
+mod test {
+    use super::super::{parse_single, Description, Loader, ParseState, ProcessingError};
     use insta::assert_debug_snapshot;
+
+    struct DummyLoader {}
+
+    impl Loader for DummyLoader {
+        fn load(&mut self, _from: Option<&[u8]>, _load: &[u8]) -> std::io::Result<Vec<u8>> {
+            unimplemented!();
+        }
+    }
+
+    fn simple_parser(input: &[u8]) -> Result<Description, ProcessingError> {
+        let mut parse_state = ParseState::default();
+        let mut loader = DummyLoader {};
+        let _ = parse_single(input, None, &mut parse_state, &mut loader)?;
+        Ok(parse_state.into_description())
+    }
 
     #[test]
     fn test_simple() {
@@ -475,16 +490,18 @@ rule cc
 build foo.o: cc foo.c"#;
         // TODO: The parser needs some mechanism to load other "files" when includes or subninjas
         // are encountered.
-        let parser = Parser::new(input.as_bytes(), None);
-        let ast = parser.parse().expect("valid parse");
+        let ast = simple_parser(input.as_bytes()).expect("valid parse");
         assert_debug_snapshot!(ast);
     }
 
     #[test]
     fn test_rule_identifier_fail() {
         for (input, expected_col) in &[("rule cc:", 8), ("rule", 5), ("rule\n", 5)] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let err = parser.parse().unwrap_err();
+            let err = simple_parser(input.as_bytes()).unwrap_err();
+            let err = match err {
+                ProcessingError::ParseFailed(e) => e,
+                e @ _ => panic!("Unexpected error {:?}", e),
+            };
             assert_eq!(err.position.line, 1);
             assert_eq!(err.position.column, *expected_col);
         }
@@ -526,8 +543,11 @@ command"#,
                 "value",
             ),
         ] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let err = parser.parse().unwrap_err();
+            let err = simple_parser(input.as_bytes()).unwrap_err();
+            let err = match err {
+                ProcessingError::ParseFailed(e) => e,
+                e @ _ => panic!("Unexpected error {:?}", e),
+            };
             assert_eq!(err.position.line, 2);
             assert_eq!(err.position.column, *expected_col);
             assert!(err.message.contains(expected_token));
@@ -554,8 +574,7 @@ rule touch
 {}"#,
                 input
             );
-            let parser = Parser::new(with_rule.as_bytes(), None);
-            let ast = parser.parse().expect("valid parse");
+            let ast = simple_parser(with_rule.as_bytes()).expect("valid parse");
             assert_debug_snapshot!(ast);
         }
     }
@@ -570,8 +589,7 @@ rule touch
             "build foo.o touch", // no colon
             "build foo.o: ", // no rule
         ] {
-            let parser = Parser::new(input.as_bytes(), None);
-            let _ = parser.parse().expect_err("parse should fail");
+            let _ = simple_parser(input.as_bytes()).expect_err("parse should fail");
         }
     }
 }

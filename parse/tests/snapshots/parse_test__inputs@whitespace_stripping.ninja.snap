@@ -1,94 +1,31 @@
 ---
 source: parse/tests/parse_test.rs
 expression: ast
-input_file: parse/tests/inputs/whitespace_stripping.ninja
+input_file: parse/tests/parse_inputs/whitespace_stripping.ninja
 ---
 Description {
-    bindings: RefCell {
-        value: Env {
-            parent: None,
-            bindings: {},
-        },
-    },
-    rules: [
-        Rule {
-            name: [
-                102,
-                111,
-                111,
-            ],
-            bindings: {
+    builds: [
+        Build {
+            action: Command(
+                "foo bar",
+            ),
+            inputs: [],
+            outputs: [
                 [
-                    99,
-                    111,
-                    109,
-                    109,
-                    97,
-                    110,
-                    100,
-                ]: Expr(
-                    [
-                        Literal(
-                            [
-                                102,
-                                111,
-                                111,
-                                32,
-                            ],
-                        ),
-                        Literal(
-                            [],
-                        ),
-                        Literal(
-                            [
-                                98,
-                                97,
-                                114,
-                            ],
-                        ),
-                    ],
-                ),
-            },
-        },
-        Rule {
-            name: [
-                98,
-                97,
-                114,
+                    120,
+                ],
             ],
-            bindings: {
+        },
+        Build {
+            action: Command(
+                "foobar",
+            ),
+            inputs: [],
+            outputs: [
                 [
-                    99,
-                    111,
-                    109,
-                    109,
-                    97,
-                    110,
-                    100,
-                ]: Expr(
-                    [
-                        Literal(
-                            [
-                                102,
-                                111,
-                                111,
-                            ],
-                        ),
-                        Literal(
-                            [],
-                        ),
-                        Literal(
-                            [
-                                98,
-                                97,
-                                114,
-                            ],
-                        ),
-                    ],
-                ),
-            },
+                    121,
+                ],
+            ],
         },
     ],
-    builds: [],
-    includes: [],
 }
