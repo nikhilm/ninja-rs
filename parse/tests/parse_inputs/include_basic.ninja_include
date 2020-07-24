@@ -1,0 +1,3 @@
+a = messed_up
+build baz: echo
+    buildvar = $a

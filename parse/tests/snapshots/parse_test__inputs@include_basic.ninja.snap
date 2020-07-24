@@ -1,0 +1,35 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/include_basic.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo baz messed_up",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    98,
+                    97,
+                    122,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo bar 3",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    98,
+                    97,
+                    114,
+                ],
+            ],
+        },
+    ],
+}

@@ -11,9 +11,19 @@ use insta::Settings;
 pub struct SimpleFileLoader {}
 
 impl Loader for SimpleFileLoader {
-    fn load(&mut self, from: Option<&[u8]>, load: &[u8]) -> std::io::Result<Vec<u8>> {
-        assert!(from.is_none());
-        fs::read(OsStr::from_bytes(load))
+    fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> std::io::Result<Vec<u8>> {
+        let path = if let Some(from) = from {
+            let src_path = Path::new(OsStr::from_bytes(from));
+            let req_path = Path::new(OsStr::from_bytes(request));
+            if req_path.components().count() > 1 {
+                todo!("handle relative paths");
+            } else {
+                src_path.with_file_name(req_path)
+            }
+        } else {
+            Path::new(OsStr::from_bytes(request)).to_owned()
+        };
+        std::fs::read(path)
     }
 }
 pub fn glob_exec<F: FnMut(&Path)>(base: &Path, pattern: &str, mut f: F) {

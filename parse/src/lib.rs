@@ -107,10 +107,10 @@ impl ParseState {
     ) -> Result<(), ProcessingError> {
         let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
         // TODO: Use the environment in scope + the rule environment.
-        let empty_env = Env::default();
+        // TODO: Are the build bindings available to the input and output path evaluation?
 
         for output in &build.outputs {
-            let output = output.eval(&empty_env);
+            let output = output.eval(&top.borrow());
             if self.outputs_seen.contains(&output) {
                 // TODO: Also add line/col information from token position, which isn't being preserved
                 // right now!
@@ -123,13 +123,13 @@ impl ParseState {
         }
 
         let evaluated_inputs: Vec<Vec<u8>> =
-            build.inputs.iter().map(|i| i.eval(&empty_env)).collect();
+            build.inputs.iter().map(|i| i.eval(&top.borrow())).collect();
 
         // TODO: Note that any rule/build level binding can refer to these variables, so the entire
         // build statement evaluation must have this environment available. In addition, these are
         // "shell quoted" when expanding within a command.
         // TODO: Get environment from rule!
-        let mut env = Env::with_parent(top);
+        let mut env = Env::with_parent(Rc::new(RefCell::new(build.bindings)));
         env.add_binding(b"out".to_vec(), space_seperated_paths(&evaluated_outputs));
         env.add_binding(b"in".to_vec(), space_seperated_paths(&evaluated_inputs));
 

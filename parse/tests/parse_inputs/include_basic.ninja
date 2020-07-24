@@ -1,0 +1,8 @@
+rule echo
+    command = echo $out $buildvar
+
+a = 2
+include include_basic.ninja_include
+a = 3
+build bar: echo
+    buildvar = $a

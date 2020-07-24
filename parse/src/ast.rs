@@ -53,5 +53,6 @@ pub struct Build {
     // These will become structs once we discriminate inputs and outputs.
     pub inputs: Vec<Expr>,
     pub outputs: Vec<Expr>,
+    pub bindings: Env,
     // ...
 }

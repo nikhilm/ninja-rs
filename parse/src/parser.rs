@@ -314,7 +314,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_build(&mut self) -> Result<Build, ParseError> {
+    fn parse_build(&mut self, top_env: Rc<RefCell<Env>>) -> Result<Build, ParseError> {
         // TODO: Support all kinds of optional outputs and dependencies.
         #[derive(Debug, PartialEq, Eq)]
         enum Read {
@@ -392,21 +392,53 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // TODO: Read remaining lines as bindings as long as indents are encountered.
-
         // EOF is OK as long as our state machine is done.
-        if state == Read::Inputs {
-            Ok(Build {
-                rule: rule.take().unwrap().to_vec(),
-                inputs,
-                outputs,
-            })
-        } else {
-            Err(ParseError::eof(
+        if state != Read::Inputs {
+            return Err(ParseError::eof(
                 "unexpected EOF in the middle of a build edge",
                 &self.lexer,
-            ))
+            ));
         }
+
+        let mut edge = Build {
+            rule: rule.take().unwrap().to_vec(),
+            inputs,
+            outputs,
+            bindings: Env::with_parent(top_env),
+        };
+
+        loop {
+            let item = self.peeker.peek(&mut self.lexer);
+            if item.is_none() {
+                break;
+            }
+
+            let item = item.unwrap();
+            if let Ok((lexeme, _)) = &item {
+                match lexeme {
+                    Lexeme::Newline | Lexeme::Comment(_) => {
+                        self.peeker.next(&mut self.lexer);
+                        // continue looping.
+                    }
+                    Lexeme::Indent => {
+                        // is an indent, do the rest of this loop.
+                        self.discard_indent()?;
+                        let (var, value) = self.read_assignment()?;
+                        // TODO: Are bindings allowed to refer to:
+                        // 1. $outs and $ins
+                        // 2. bindings that come after them lexically but in the same edge
+                        // Will need to use eval_for_build based on that.
+                        edge.bindings.add_binding(var, value.eval(&edge.bindings));
+                    }
+                    _ => {
+                        // Done with this rule since we encountered a non-indent.
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(edge)
     }
 
     pub(crate) fn parse(
@@ -433,7 +465,10 @@ impl<'a> Parser<'a> {
                     state.add_rule(self.parse_rule()?)?;
                 }
                 Lexeme::Build => {
-                    state.add_build_edge(self.parse_build()?, state.bindings.clone())?;
+                    state.add_build_edge(
+                        self.parse_build(state.bindings.clone())?,
+                        state.bindings.clone(),
+                    )?;
                 }
                 Lexeme::Include => {
                     let path = self.expect_value()?;
