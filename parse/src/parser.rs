@@ -97,13 +97,15 @@ impl<'a> Peeker<'a> {
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     peeker: Peeker<'a>,
+    source_name: Option<Vec<u8>>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(input: &[u8], source_name: Option<Vec<u8>>) -> Parser {
         Parser {
-            lexer: Lexer::new(input, source_name),
+            lexer: Lexer::new(input, source_name.clone()),
             peeker: Default::default(),
+            source_name,
         }
     }
 
@@ -410,9 +412,8 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse(
         mut self,
         state: &mut ParseState,
-        _loader: &mut dyn Loader,
+        loader: &mut dyn Loader,
     ) -> Result<(), ProcessingError> {
-        let bindings = Rc::new(RefCell::new(Env::default()));
         // Focus here on handling bindings at the top-level, in rules and in builds.
         while let Some(result) = self.peeker.next(&mut self.lexer) {
             let (token, pos) =
@@ -423,22 +424,28 @@ impl<'a> Parser<'a> {
                     let value = self.expect_value()?;
                     // Top-level bindings are evaluated immediately.
                     let value = {
-                        let b = bindings.borrow();
+                        let b = state.bindings.borrow();
                         value.eval(&b)
                     };
-                    bindings.borrow_mut().add_binding(ident, value);
+                    state.bindings.borrow_mut().add_binding(ident, value);
                 }
                 Lexeme::Rule => {
                     state.add_rule(self.parse_rule()?)?;
                 }
                 Lexeme::Build => {
-                    state.add_build_edge(self.parse_build()?, bindings.clone())?;
+                    state.add_build_edge(self.parse_build()?, state.bindings.clone())?;
                 }
-                // Lexeme::Include => {
-                //     let path = self.expect_value()?;
-                //     description.includes.push(Include { path });
-                //     self.discard_newline()?;
-                // }
+                Lexeme::Include => {
+                    let path = self.expect_value()?;
+                    self.discard_newline()?;
+                    let path = {
+                        let env = state.bindings.borrow();
+                        path.eval(&env)
+                    };
+                    let contents = loader.load(self.source_name.as_deref(), &path)?;
+                    // TODO: Error should be from the included path.
+                    super::parse_single(&contents, Some(path), state, loader)?;
+                }
                 Lexeme::Newline => {}
                 Lexeme::Comment(_) => {}
                 _ => {

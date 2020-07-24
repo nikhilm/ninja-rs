@@ -63,6 +63,7 @@ struct ParseState {
     known_rules: HashMap<Vec<u8>, past::Rule>,
     outputs_seen: HashSet<Vec<u8>>,
     description: Description,
+    bindings: Rc<RefCell<Env>>,
 }
 
 impl Default for ParseState {
@@ -80,6 +81,7 @@ impl Default for ParseState {
             known_rules: rules,
             outputs_seen: HashSet::default(),
             description: Description::default(),
+            bindings: Rc::new(RefCell::new(Env::default())),
         }
     }
 }

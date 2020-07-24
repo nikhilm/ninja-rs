@@ -42,9 +42,18 @@ pub struct Config {
 struct FileLoader {}
 impl Loader for FileLoader {
     fn load(&mut self, from: Option<&[u8]>, request: &[u8]) -> std::io::Result<Vec<u8>> {
-        // TODO: Handle relative paths with from.
-        assert!(from.is_none());
-        std::fs::read(Path::new(OsStr::from_bytes(request)))
+        let path = if let Some(from) = from {
+            let src_path = Path::new(OsStr::from_bytes(from));
+            let req_path = Path::new(OsStr::from_bytes(request));
+            if req_path.components().count() > 1 {
+                todo!("handle relative paths");
+            } else {
+                src_path.with_file_name(req_path)
+            }
+        } else {
+            Path::new(OsStr::from_bytes(request)).to_owned()
+        };
+        std::fs::read(path)
     }
 }
 
