@@ -1,0 +1,17 @@
+# various shenanigans around build edge variable evaluation.
+
+rule echo
+    command = echo "in:$in | out:$out | var:$buildvar $lexically_first"
+
+build hello_in: phony
+
+# The build edge bindings are available to paths.
+build a.txt_$buildvar: echo ${buildvar}_in
+    buildvar = hello
+
+# Paths are not available to edge bindings.
+# Edge bindings are not available to other edge bindings.
+build b.txt: echo
+    buildvar = geez_$out
+    lexically_second = try this
+    lexically_first = $lexically_second

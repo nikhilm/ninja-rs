@@ -110,7 +110,7 @@ impl ParseState {
         // TODO: Are the build bindings available to the input and output path evaluation?
 
         for output in &build.outputs {
-            let output = output.eval(&top.borrow());
+            let output = output.eval(&build.bindings);
             if self.outputs_seen.contains(&output) {
                 // TODO: Also add line/col information from token position, which isn't being preserved
                 // right now!
@@ -122,8 +122,11 @@ impl ParseState {
             evaluated_outputs.push(output);
         }
 
-        let evaluated_inputs: Vec<Vec<u8>> =
-            build.inputs.iter().map(|i| i.eval(&top.borrow())).collect();
+        let evaluated_inputs: Vec<Vec<u8>> = build
+            .inputs
+            .iter()
+            .map(|i| i.eval(&build.bindings))
+            .collect();
 
         // TODO: Note that any rule/build level binding can refer to these variables, so the entire
         // build statement evaluation must have this environment available. In addition, these are

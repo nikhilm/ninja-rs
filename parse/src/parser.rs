@@ -404,7 +404,7 @@ impl<'a> Parser<'a> {
             rule: rule.take().unwrap().to_vec(),
             inputs,
             outputs,
-            bindings: Env::with_parent(top_env),
+            bindings: Env::with_parent(top_env.clone()),
         };
 
         loop {
@@ -424,11 +424,12 @@ impl<'a> Parser<'a> {
                         // is an indent, do the rest of this loop.
                         self.discard_indent()?;
                         let (var, value) = self.read_assignment()?;
-                        // TODO: Are bindings allowed to refer to:
-                        // 1. $outs and $ins
-                        // 2. bindings that come after them lexically but in the same edge
+                        // Bindings in the edge do not see $out and $in.
+                        // Bindings do not see other bindings in the same edge, regardless of
+                        // lexical order.
                         // Will need to use eval_for_build based on that.
-                        edge.bindings.add_binding(var, value.eval(&edge.bindings));
+                        edge.bindings
+                            .add_binding(var, value.eval(&top_env.borrow()));
                     }
                     _ => {
                         // Done with this rule since we encountered a non-indent.

@@ -1,0 +1,72 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/build_env.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Phony,
+            inputs: [],
+            outputs: [
+                [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111,
+                    95,
+                    105,
+                    110,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo \"in:hello_in | out:a.txt_hello | var:hello \"",
+            ),
+            inputs: [
+                [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111,
+                    95,
+                    105,
+                    110,
+                ],
+            ],
+            outputs: [
+                [
+                    97,
+                    46,
+                    116,
+                    120,
+                    116,
+                    95,
+                    104,
+                    101,
+                    108,
+                    108,
+                    111,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo \"in: | out:b.txt | var:geez_ \"",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+    ],
+}
