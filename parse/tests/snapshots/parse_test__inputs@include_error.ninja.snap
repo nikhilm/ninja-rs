@@ -1,0 +1,8 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/parse_inputs/include_error.ninja
+---
+include_error.include:1:7: Expected =, got identifier
+error here
+      ^ near here

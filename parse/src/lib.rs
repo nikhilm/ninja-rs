@@ -26,7 +26,13 @@ use parser::{ParseError, Parser};
 pub use repr::*;
 
 #[derive(Error, Debug)]
-#[error("some processing error TODO")]
+#[error("{position}: {inner}")]
+pub struct ProcessingErrorWithPosition {
+    inner: ProcessingError,
+    position: lexer::Position,
+}
+
+#[derive(Error, Debug)]
 pub enum ProcessingError {
     #[error("utf-8 error")]
     Utf8Error(#[from] Utf8Error),
@@ -40,10 +46,25 @@ pub enum ProcessingError {
     UnknownRule(String),
     #[error("missing 'command' for rule: {0}")]
     MissingCommand(String),
-    #[error("{0}")]
+    #[error(transparent)]
     ParseFailed(#[from] ParseError),
-    #[error("{0}")]
+    #[error(transparent)]
     IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    WithPosition(#[from] Box<ProcessingErrorWithPosition>),
+}
+
+impl ProcessingError {
+    fn with_position(self, position: lexer::Position) -> ProcessingErrorWithPosition {
+        ProcessingErrorWithPosition {
+            inner: self,
+            position,
+        }
+    }
+
+    fn with_position_boxed(self, position: lexer::Position) -> Box<ProcessingErrorWithPosition> {
+        Box::new(self.with_position(position))
+    }
 }
 
 const PHONY: &[u8] = &[112, 104, 111, 110, 121];

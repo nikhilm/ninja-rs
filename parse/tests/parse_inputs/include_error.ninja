@@ -1,0 +1,2 @@
+# Make sure parse errors refer to the correct file.
+include include_error.include

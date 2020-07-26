@@ -1,0 +1,6 @@
+---
+source: parse/tests/parse_test.rs
+expression: e
+input_file: parse/tests/parse_inputs/include_processing_error.ninja
+---
+include_processing_error.include:2:1: build edge refers to unknown rule: unknown

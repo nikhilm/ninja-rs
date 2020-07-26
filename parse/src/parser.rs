@@ -12,7 +12,7 @@ use super::{
     env::Env,
     lexer,
     lexer::{Lexeme, Lexer, LexerError, LexerItem, Position},
-    Loader, ParseState, ProcessingError,
+    Loader, ParseState, ProcessingError, ProcessingErrorWithPosition,
 };
 
 #[derive(Debug, Error)]
@@ -60,11 +60,8 @@ impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{source}:{lineno}:{col}: {msg}\n{line}\n{indent}^ near here",
-            source = std::str::from_utf8(self.position.source_name.as_deref().unwrap_or(&[]))
-                .unwrap_or("invalid utf-8"),
-            lineno = self.position.line,
-            col = self.position.column,
+            "{position}: {msg}\n{line}\n{indent}^ near here",
+            position = self.position,
             msg = self.message,
             line = self.line,
             indent = " ".repeat(self.position.column.saturating_sub(1)),
@@ -463,13 +460,17 @@ impl<'a> Parser<'a> {
                     state.bindings.borrow_mut().add_binding(ident, value);
                 }
                 Lexeme::Rule => {
-                    state.add_rule(self.parse_rule()?)?;
+                    state
+                        .add_rule(self.parse_rule()?)
+                        .map_err(|e| e.with_position_boxed(self.lexer.to_position(pos)))?;
                 }
                 Lexeme::Build => {
-                    state.add_build_edge(
-                        self.parse_build(state.bindings.clone())?,
-                        state.bindings.clone(),
-                    )?;
+                    state
+                        .add_build_edge(
+                            self.parse_build(state.bindings.clone())?,
+                            state.bindings.clone(),
+                        )
+                        .map_err(|e| e.with_position_boxed(self.lexer.to_position(pos)))?;
                 }
                 Lexeme::Include => {
                     let path = self.expect_value()?;

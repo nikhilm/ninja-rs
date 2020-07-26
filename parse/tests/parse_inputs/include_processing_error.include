@@ -1,0 +1,2 @@
+# refers to unknown rule
+build a.txt: unknown

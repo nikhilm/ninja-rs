@@ -34,6 +34,17 @@ impl Position {
     }
 }
 
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let source = self
+            .source_name
+            .as_ref()
+            .map(|v| std::str::from_utf8(v).unwrap_or("invalid utf-8"))
+            .unwrap_or_default();
+        write!(f, "{}:{}:{}", source, self.line, self.column)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum VarRefType {
     WithoutParens,

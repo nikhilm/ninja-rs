@@ -1,0 +1,2 @@
+# Make sure processing errors refer to the correct file.
+include include_processing_error.include
