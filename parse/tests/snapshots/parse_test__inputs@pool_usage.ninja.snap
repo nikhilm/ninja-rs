@@ -1,0 +1,24 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/pool_usage.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo a.txt",
+            ),
+            inputs: [],
+            outputs: [
+                [
+                    97,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+    ],
+}

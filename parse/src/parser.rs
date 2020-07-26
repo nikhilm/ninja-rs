@@ -174,6 +174,8 @@ impl<'a> Parser<'a> {
                             Ok(token)
                         }
                         Lexeme::Identifier(_) => Ok(token),
+                        // `pool` is treated as an identifier inside edges/rules.
+                        Lexeme::Pool => Ok(Lexeme::Identifier(b"pool")),
                         _ => Err(ParseError::new(
                             format!("Expected identifier, got {}", token),
                             pos,
@@ -498,7 +500,15 @@ impl<'a> Parser<'a> {
     }
 }
 
-const ALLOWED_RULE_VARIABLES: &[&[u8]] = &[b"command", b"description"];
+const ALLOWED_RULE_VARIABLES: &[&[u8]] = &[
+    b"command",
+    b"depfile",
+    b"deps",
+    b"description",
+    b"generator",
+    b"pool",
+    b"restat",
+];
 
 fn allowed_rule_variable(name: &[u8]) -> bool {
     ALLOWED_RULE_VARIABLES.contains(&name)

@@ -1,0 +1,9 @@
+# The token `pool` is an identifier inside rules/builds but a keyword at the top-level.
+# This smoke test just ensures pool inside rules/builds does not fail.
+
+rule echo
+    command = echo $out
+    pool = this is ok
+
+build a.txt: echo
+    pool = this is ok too
