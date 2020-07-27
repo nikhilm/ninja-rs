@@ -177,7 +177,12 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
         map.insert(
             key.clone(),
             Task {
-                dependencies: build.inputs.into_iter().map(sym_to_key).collect(),
+                dependencies: build
+                    .inputs
+                    .into_iter()
+                    .map(sym_to_key)
+                    .chain(build.implicit_inputs.into_iter().map(sym_to_key))
+                    .collect(),
                 variant: match build.action {
                     Action::Phony => TaskVariant::Retrieve,
                     Action::Command(s) => TaskVariant::Command(s),
@@ -272,5 +277,25 @@ mod test {
         }
         assert!(found_multi);
         assert_eq!(single_count, 2);
+    }
+
+    #[test]
+    fn implicit_dependencies() {
+        let desc = Description {
+            builds: vec![Build {
+                action: Action::Command("compiler".to_owned()),
+                inputs: vec![b"a.txt".to_vec(), b"b.txt".to_vec()],
+                implicit_inputs: vec![b"c.txt".to_vec(), b"d.txt".to_vec()],
+                outputs: vec![b"z.txt".to_vec()],
+            }],
+        };
+
+        let tasks = description_to_tasks(desc);
+        assert_eq!(tasks.all_tasks().len(), 1);
+        let task = tasks
+            .task(&Key::Single(b"z.txt".to_vec()))
+            .expect("valid task");
+        assert!(task.is_command());
+        assert_eq!(task.dependencies().len(), 4);
     }
 }
