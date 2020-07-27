@@ -235,6 +235,7 @@ mod test {
             builds: vec![Build {
                 action: Action::Command("compiler".to_owned()),
                 inputs: vec![],
+                implicit_inputs: vec![],
                 outputs: vec![b"output9.txt".to_vec(), b"output2.txt".to_vec()],
             }],
         };

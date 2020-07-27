@@ -10,6 +10,7 @@ Description {
                 "echo baz messed_up",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     98,
@@ -23,6 +24,7 @@ Description {
                 "echo bar 3",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     98,

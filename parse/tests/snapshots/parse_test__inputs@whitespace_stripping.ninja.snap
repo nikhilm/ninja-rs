@@ -10,6 +10,7 @@ Description {
                 "foo bar",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     120,
@@ -21,6 +22,7 @@ Description {
                 "foobar",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     121,

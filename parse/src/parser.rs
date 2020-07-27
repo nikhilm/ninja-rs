@@ -12,7 +12,7 @@ use super::{
     env::Env,
     lexer,
     lexer::{Lexeme, Lexer, LexerError, LexerItem, Position},
-    Loader, ParseState, ProcessingError, ProcessingErrorWithPosition,
+    Loader, ParseState, ProcessingError,
 };
 
 #[derive(Debug, Error)]
@@ -320,10 +320,12 @@ impl<'a> Parser<'a> {
             Outputs,
             Rule,
             Inputs,
+            ImplicitInputs,
         };
 
         let mut outputs: Vec<Expr> = Vec::new();
         let mut inputs: Vec<Expr> = Vec::new();
+        let mut implicit_inputs: Vec<Expr> = Vec::new();
         let mut rule = None;
         let mut state = Read::Outputs;
         let mut first_line_pos = None;
@@ -377,12 +379,42 @@ impl<'a> Parser<'a> {
                     Lexeme::Expr(_) => {
                         inputs.push(Parser::expr_to_expr(token));
                     }
+                    Lexeme::Pipe => {
+                        state = Read::ImplicitInputs;
+                    }
                     Lexeme::Newline => {
                         break;
                     }
                     _ => {
                         return Err(ParseError::new(
-                            format!("Expected input or {}, got {}", Lexeme::Newline, token),
+                            format!(
+                                "Expected a dependency or one of ({}, {}, {}), got {}",
+                                Lexeme::Pipe,
+                                Lexeme::Pipe2,
+                                Lexeme::Newline,
+                                token
+                            ),
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
+                },
+                Read::ImplicitInputs => match token {
+                    Lexeme::Expr(_) => {
+                        implicit_inputs.push(Parser::expr_to_expr(token));
+                    }
+                    Lexeme::Pipe2 => todo!(),
+                    Lexeme::Newline => {
+                        break;
+                    }
+                    _ => {
+                        return Err(ParseError::new(
+                            format!(
+                                "Expected an implicit dependency or one of ({}, {}), got {}",
+                                Lexeme::Pipe2,
+                                Lexeme::Newline,
+                                token
+                            ),
                             pos,
                             &self.lexer,
                         ));
@@ -392,16 +424,20 @@ impl<'a> Parser<'a> {
         }
 
         // EOF is OK as long as our state machine is done.
-        if state != Read::Inputs {
-            return Err(ParseError::eof(
-                "unexpected EOF in the middle of a build edge",
-                &self.lexer,
-            ));
+        match state {
+            Read::Inputs | Read::ImplicitInputs => {}
+            _ => {
+                return Err(ParseError::eof(
+                    "unexpected EOF in the middle of a build edge",
+                    &self.lexer,
+                ));
+            }
         }
 
         let mut edge = Build {
             rule: rule.take().unwrap().to_vec(),
             inputs,
+            implicit_inputs,
             outputs,
             bindings: Env::with_parent(top_env.clone()),
         };

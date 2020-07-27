@@ -10,6 +10,7 @@ Description {
                 "echo ",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     102,

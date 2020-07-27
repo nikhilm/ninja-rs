@@ -8,6 +8,7 @@ Description {
         Build {
             action: Phony,
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     104,
@@ -37,6 +38,7 @@ Description {
                     110,
                 ],
             ],
+            implicit_inputs: [],
             outputs: [
                 [
                     97,
@@ -58,6 +60,7 @@ Description {
                 "echo \"in: | out:b.txt | var:geez_ \"",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     98,

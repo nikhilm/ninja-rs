@@ -17,6 +17,7 @@ Description {
                     101,
                 ],
             ],
+            implicit_inputs: [],
             outputs: [
                 [
                     97,

@@ -1,0 +1,9 @@
+rule echo
+    command = echo $in
+
+build x.txt: echo b.txt | c.txt
+build y.txt: echo b.txt | c.txt d.txt
+build z.txt: echo b.txt m.txt | c.txt d.txt
+
+build w.txt: echo b.txt $foo.txt | $foo.png d.txt
+    foo = expand this

@@ -124,7 +124,7 @@ impl ParseState {
     fn add_build_edge(
         &mut self,
         build: past::Build,
-        top: Rc<RefCell<Env>>,
+        _top: Rc<RefCell<Env>>,
     ) -> Result<(), ProcessingError> {
         let mut evaluated_outputs = Vec::with_capacity(build.outputs.len());
         // TODO: Use the environment in scope + the rule environment.
@@ -145,6 +145,12 @@ impl ParseState {
 
         let evaluated_inputs: Vec<Vec<u8>> = build
             .inputs
+            .iter()
+            .map(|i| i.eval(&build.bindings))
+            .collect();
+
+        let evaluated_implicit_inputs: Vec<Vec<u8>> = build
+            .implicit_inputs
             .iter()
             .map(|i| i.eval(&build.bindings))
             .collect();
@@ -185,6 +191,7 @@ impl ParseState {
         self.description.builds.push(Build {
             action,
             inputs: evaluated_inputs,
+            implicit_inputs: evaluated_implicit_inputs,
             outputs: evaluated_outputs,
         });
         Ok(())

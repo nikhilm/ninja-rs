@@ -52,6 +52,7 @@ pub struct Build {
     pub rule: Vec<u8>,
     // These will become structs once we discriminate inputs and outputs.
     pub inputs: Vec<Expr>,
+    pub implicit_inputs: Vec<Expr>,
     pub outputs: Vec<Expr>,
     pub bindings: Env,
     // ...

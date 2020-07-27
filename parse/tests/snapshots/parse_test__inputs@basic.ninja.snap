@@ -10,6 +10,7 @@ Description {
                 "echo first",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     102,
@@ -25,6 +26,7 @@ Description {
                 "echo second",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     115,
@@ -63,6 +65,7 @@ Description {
                     99,
                 ],
             ],
+            implicit_inputs: [],
             outputs: [
                 [
                     112,

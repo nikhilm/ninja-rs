@@ -1,0 +1,192 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/implicit_inputs_1.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo b.txt",
+            ),
+            inputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            implicit_inputs: [
+                [
+                    99,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            outputs: [
+                [
+                    120,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo b.txt",
+            ),
+            inputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            implicit_inputs: [
+                [
+                    99,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    100,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            outputs: [
+                [
+                    121,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo b.txt m.txt",
+            ),
+            inputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    109,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            implicit_inputs: [
+                [
+                    99,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    100,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            outputs: [
+                [
+                    122,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo b.txt expand this.txt",
+            ),
+            inputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    101,
+                    120,
+                    112,
+                    97,
+                    110,
+                    100,
+                    32,
+                    116,
+                    104,
+                    105,
+                    115,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            implicit_inputs: [
+                [
+                    101,
+                    120,
+                    112,
+                    97,
+                    110,
+                    100,
+                    32,
+                    116,
+                    104,
+                    105,
+                    115,
+                    46,
+                    112,
+                    110,
+                    103,
+                ],
+                [
+                    100,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            outputs: [
+                [
+                    119,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+    ],
+}

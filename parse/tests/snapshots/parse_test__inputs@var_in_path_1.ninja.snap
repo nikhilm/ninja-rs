@@ -10,6 +10,7 @@ Description {
                 "echo a path with spaces and another one",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     97,
@@ -55,6 +56,7 @@ Description {
                 "echo  startswitha$",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     32,

@@ -22,6 +22,7 @@ Description {
                     50,
                 ],
             ],
+            implicit_inputs: [],
             outputs: [
                 [
                     102,
@@ -51,6 +52,7 @@ Description {
                     51,
                 ],
             ],
+            implicit_inputs: [],
             outputs: [
                 [
                     98,

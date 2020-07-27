@@ -9,6 +9,7 @@ Description {
                 "touch",
             ),
             inputs: [],
+            implicit_inputs: [],
             outputs: [
                 [
                     102,

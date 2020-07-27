@@ -17,5 +17,6 @@ pub enum Action {
 pub struct Build {
     pub action: Action,
     pub inputs: Vec<Vec<u8>>,
+    pub implicit_inputs: Vec<Vec<u8>>,
     pub outputs: Vec<Vec<u8>>,
 }
