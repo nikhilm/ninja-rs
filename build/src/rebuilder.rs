@@ -358,6 +358,7 @@ mod test {
         };
         let task = Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         let task = rebuilder
@@ -385,6 +386,7 @@ mod test {
             Key::Single(b"phony_user".to_vec()),
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                order_dependencies: vec![],
                 variant: TaskVariant::Retrieve,
             },
         );
@@ -400,6 +402,7 @@ mod test {
             Key::Single(b"phony_user".to_vec()),
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                order_dependencies: vec![],
                 variant: TaskVariant::Command("whatever".to_string()),
             },
         );
@@ -419,6 +422,7 @@ mod test {
         };
         let task = Task {
             dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+            order_dependencies: vec![],
             variant: TaskVariant::Retrieve,
         };
         let task = rebuilder.build(
@@ -447,6 +451,7 @@ mod test {
             Key::Single(b"phony_target_that_does_not_exist".to_vec()),
             &Task {
                 dependencies: vec![],
+                order_dependencies: vec![],
                 variant: TaskVariant::Retrieve,
             },
         );
@@ -458,6 +463,7 @@ mod test {
             Key::Single(b"phony_user".to_vec()),
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                order_dependencies: vec![],
                 variant: TaskVariant::Retrieve,
             },
         );
@@ -494,10 +500,12 @@ mod test {
         };
         let cc_task = Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         let link_task = Task {
             dependencies: vec![Key::Single(b"foo.o".to_vec())],
+            order_dependencies: vec![],
             variant: TaskVariant::Command("cc -o foo foo.o".to_owned()),
         };
 

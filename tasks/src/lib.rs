@@ -57,12 +57,17 @@ pub type Dependencies = Vec<Key>;
 #[derive(Debug)]
 pub struct Task {
     pub dependencies: Dependencies,
+    pub order_dependencies: Dependencies,
     pub variant: TaskVariant,
 }
 
 impl Task {
     pub fn dependencies(&self) -> &[Key] {
         &self.dependencies
+    }
+
+    pub fn order_dependencies(&self) -> &[Key] {
+        &self.order_dependencies
     }
 
     pub fn is_retrieve(&self) -> bool {
@@ -165,6 +170,7 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
                         key.clone(),
                         Task {
                             dependencies: vec![main_key.clone()],
+                            order_dependencies: vec![],
                             variant: TaskVariant::Retrieve,
                         },
                     );
@@ -183,6 +189,7 @@ pub fn description_to_tasks(desc: Description) -> Tasks {
                     .map(sym_to_key)
                     .chain(build.implicit_inputs.into_iter().map(sym_to_key))
                     .collect(),
+                order_dependencies: build.order_inputs.into_iter().map(sym_to_key).collect(),
                 variant: match build.action {
                     Action::Phony => TaskVariant::Retrieve,
                     Action::Command(s) => TaskVariant::Command(s),
@@ -299,5 +306,27 @@ mod test {
             .expect("valid task");
         assert!(task.is_command());
         assert_eq!(task.dependencies().len(), 4);
+    }
+
+    #[test]
+    fn order_dependencies() {
+        let desc = Description {
+            builds: vec![Build {
+                action: Action::Command("compiler".to_owned()),
+                inputs: vec![b"a.txt".to_vec(), b"b.txt".to_vec()],
+                implicit_inputs: vec![],
+                order_inputs: vec![b"c.txt".to_vec(), b"d.txt".to_vec()],
+                outputs: vec![b"z.txt".to_vec()],
+            }],
+        };
+
+        let tasks = description_to_tasks(desc);
+        assert_eq!(tasks.all_tasks().len(), 1);
+        let task = tasks
+            .task(&Key::Single(b"z.txt".to_vec()))
+            .expect("valid task");
+        assert!(task.is_command());
+        assert_eq!(task.dependencies().len(), 2);
+        assert_eq!(task.order_dependencies().len(), 2);
     }
 }

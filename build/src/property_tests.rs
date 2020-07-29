@@ -50,6 +50,7 @@ proptest! {
         let maybe_task =
         rebuilder.build(Key::Single(b"foo".to_vec()), &Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
+                            order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         });
         match (mtime_a, mtime_b) {
