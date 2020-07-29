@@ -84,6 +84,11 @@ pub enum Dirtiness {
     Modified(SystemTime),
 }
 
+pub trait MTimeStateI {
+    fn modified(&self, key: Key) -> std::io::Result<Dirtiness>;
+    fn mark_dirty(&self, key: Key, is_dirty: bool);
+}
+
 #[derive(Debug)]
 pub struct MTimeState<Disk>
 where
@@ -104,8 +109,13 @@ where
             dirty: Default::default(),
         }
     }
+}
 
-    pub fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
+impl<Disk> MTimeStateI for MTimeState<Disk>
+where
+    Disk: DiskInterface,
+{
+    fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
         match self.dirty.borrow_mut().entry(key.clone()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(entry) => {
@@ -128,7 +138,7 @@ where
         }
     }
 
-    pub fn mark_dirty(&self, key: Key, is_dirty: bool) {
+    fn mark_dirty(&self, key: Key, is_dirty: bool) {
         // Marking as Clean only makes sense for multi-keys. For single-keys that represent
         // filesystem resources, they are either dirty or need to be consulted in the cache in the
         // future.
@@ -146,18 +156,18 @@ where
 }
 
 #[derive(Debug)]
-pub struct MTimeRebuilder<Disk>
+pub struct MTimeRebuilder<State>
 where
-    Disk: DiskInterface,
+    State: MTimeStateI,
 {
-    mtime_state: MTimeState<Disk>,
+    mtime_state: State,
 }
 
-impl<Disk> MTimeRebuilder<Disk>
+impl<State> MTimeRebuilder<State>
 where
-    Disk: DiskInterface,
+    State: MTimeStateI,
 {
-    pub fn new(mtime_state: MTimeState<Disk>) -> Self {
+    pub fn new(mtime_state: State) -> Self {
         Self { mtime_state }
     }
 }
@@ -172,9 +182,9 @@ pub enum RebuilderError {
     IOError(#[from] std::io::Error),
 }
 
-impl<Disk> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<Disk>
+impl<State> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<State>
 where
-    Disk: DiskInterface,
+    State: MTimeStateI,
 {
     fn build(
         &self,

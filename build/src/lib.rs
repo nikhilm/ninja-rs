@@ -1,3 +1,5 @@
+#![feature(option_expect_none)]
+
 extern crate petgraph;
 
 use std::io::Write;
@@ -14,6 +16,9 @@ pub mod disk_interface;
 mod interface;
 mod rebuilder;
 mod task;
+
+#[cfg(test)]
+mod property_tests;
 
 use disk_interface::SystemDiskInterface;
 use interface::*;
