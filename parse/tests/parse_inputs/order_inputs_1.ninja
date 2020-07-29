@@ -1,0 +1,17 @@
+rule echo
+    command = echo $in
+
+# Needed so we can run the original ninja on this file.
+build b.txt c.txt d.txt m.txt expand$ this.txt expand$ this.png: phony
+
+build x.txt: echo b.txt || c.txt
+build y.txt: echo b.txt || c.txt d.txt
+build z.txt: echo b.txt m.txt || c.txt d.txt
+
+build w.txt: echo b.txt $foo.txt | $foo.png || d.txt
+    foo = expand this
+
+# Just order inputs. Allowed.
+build gla: echo || b.txt
+# Empty. Allowed.
+build glab: echo | ||

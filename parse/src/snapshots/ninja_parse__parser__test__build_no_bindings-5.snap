@@ -23,6 +23,7 @@ Description {
                 ],
             ],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     102,
@@ -53,6 +54,7 @@ Description {
                 ],
             ],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     98,

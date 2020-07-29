@@ -10,6 +10,7 @@ Description {
             ),
             inputs: [],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     102,

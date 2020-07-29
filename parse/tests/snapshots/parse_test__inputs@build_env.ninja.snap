@@ -9,6 +9,7 @@ Description {
             action: Phony,
             inputs: [],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     104,
@@ -39,6 +40,7 @@ Description {
                 ],
             ],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     97,
@@ -61,6 +63,7 @@ Description {
             ),
             inputs: [],
             implicit_inputs: [],
+            order_inputs: [],
             outputs: [
                 [
                     98,

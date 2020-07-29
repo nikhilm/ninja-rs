@@ -241,6 +241,7 @@ mod test {
                 action: Action::Command("compiler".to_owned()),
                 inputs: vec![],
                 implicit_inputs: vec![],
+                order_inputs: vec![],
                 outputs: vec![b"output9.txt".to_vec(), b"output2.txt".to_vec()],
             }],
         };
@@ -286,6 +287,7 @@ mod test {
                 action: Action::Command("compiler".to_owned()),
                 inputs: vec![b"a.txt".to_vec(), b"b.txt".to_vec()],
                 implicit_inputs: vec![b"c.txt".to_vec(), b"d.txt".to_vec()],
+                order_inputs: vec![],
                 outputs: vec![b"z.txt".to_vec()],
             }],
         };

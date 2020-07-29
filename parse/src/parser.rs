@@ -321,11 +321,13 @@ impl<'a> Parser<'a> {
             Rule,
             Inputs,
             ImplicitInputs,
+            OrderInputs,
         };
 
         let mut outputs: Vec<Expr> = Vec::new();
         let mut inputs: Vec<Expr> = Vec::new();
         let mut implicit_inputs: Vec<Expr> = Vec::new();
+        let mut order_inputs: Vec<Expr> = Vec::new();
         let mut rule = None;
         let mut state = Read::Outputs;
         let mut first_line_pos = None;
@@ -382,6 +384,9 @@ impl<'a> Parser<'a> {
                     Lexeme::Pipe => {
                         state = Read::ImplicitInputs;
                     }
+                    Lexeme::Pipe2 => {
+                        state = Read::OrderInputs;
+                    }
                     Lexeme::Newline => {
                         break;
                     }
@@ -403,7 +408,9 @@ impl<'a> Parser<'a> {
                     Lexeme::Expr(_) => {
                         implicit_inputs.push(Parser::expr_to_expr(token));
                     }
-                    Lexeme::Pipe2 => todo!(),
+                    Lexeme::Pipe2 => {
+                        state = Read::OrderInputs;
+                    }
                     Lexeme::Newline => {
                         break;
                     }
@@ -420,12 +427,31 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 },
+                Read::OrderInputs => match token {
+                    Lexeme::Expr(_) => {
+                        order_inputs.push(Parser::expr_to_expr(token));
+                    }
+                    Lexeme::Newline => {
+                        break;
+                    }
+                    _ => {
+                        return Err(ParseError::new(
+                            format!(
+                                "Expected an order dependency or {}, got {}",
+                                Lexeme::Newline,
+                                token
+                            ),
+                            pos,
+                            &self.lexer,
+                        ));
+                    }
+                },
             }
         }
 
         // EOF is OK as long as our state machine is done.
         match state {
-            Read::Inputs | Read::ImplicitInputs => {}
+            Read::Inputs | Read::ImplicitInputs | Read::OrderInputs => {}
             _ => {
                 return Err(ParseError::eof(
                     "unexpected EOF in the middle of a build edge",
@@ -438,6 +464,7 @@ impl<'a> Parser<'a> {
             rule: rule.take().unwrap().to_vec(),
             inputs,
             implicit_inputs,
+            order_inputs,
             outputs,
             bindings: Env::with_parent(top_env.clone()),
         };

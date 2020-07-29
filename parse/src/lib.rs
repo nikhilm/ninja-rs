@@ -155,6 +155,12 @@ impl ParseState {
             .map(|i| i.eval(&build.bindings))
             .collect();
 
+        let evaluated_order_inputs: Vec<Vec<u8>> = build
+            .order_inputs
+            .iter()
+            .map(|i| i.eval(&build.bindings))
+            .collect();
+
         // TODO: Note that any rule/build level binding can refer to these variables, so the entire
         // build statement evaluation must have this environment available. In addition, these are
         // "shell quoted" when expanding within a command.
@@ -192,6 +198,7 @@ impl ParseState {
             action,
             inputs: evaluated_inputs,
             implicit_inputs: evaluated_implicit_inputs,
+            order_inputs: evaluated_order_inputs,
             outputs: evaluated_outputs,
         });
         Ok(())

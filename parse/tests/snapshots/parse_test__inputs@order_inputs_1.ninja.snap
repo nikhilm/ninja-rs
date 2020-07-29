@@ -1,7 +1,7 @@
 ---
 source: parse/tests/parse_test.rs
 expression: ast
-input_file: parse/tests/parse_inputs/implicit_inputs_1.ninja
+input_file: parse/tests/parse_inputs/order_inputs_1.ninja
 ---
 Description {
     builds: [
@@ -88,7 +88,8 @@ Description {
                     116,
                 ],
             ],
-            implicit_inputs: [
+            implicit_inputs: [],
+            order_inputs: [
                 [
                     99,
                     46,
@@ -97,7 +98,6 @@ Description {
                     116,
                 ],
             ],
-            order_inputs: [],
             outputs: [
                 [
                     120,
@@ -121,7 +121,8 @@ Description {
                     116,
                 ],
             ],
-            implicit_inputs: [
+            implicit_inputs: [],
+            order_inputs: [
                 [
                     99,
                     46,
@@ -137,7 +138,6 @@ Description {
                     116,
                 ],
             ],
-            order_inputs: [],
             outputs: [
                 [
                     121,
@@ -168,7 +168,8 @@ Description {
                     116,
                 ],
             ],
-            implicit_inputs: [
+            implicit_inputs: [],
+            order_inputs: [
                 [
                     99,
                     46,
@@ -184,7 +185,6 @@ Description {
                     116,
                 ],
             ],
-            order_inputs: [],
             outputs: [
                 [
                     122,
@@ -243,6 +243,8 @@ Description {
                     110,
                     103,
                 ],
+            ],
+            order_inputs: [
                 [
                     100,
                     46,
@@ -251,7 +253,6 @@ Description {
                     116,
                 ],
             ],
-            order_inputs: [],
             outputs: [
                 [
                     119,
@@ -267,7 +268,8 @@ Description {
                 "echo ",
             ),
             inputs: [],
-            implicit_inputs: [
+            implicit_inputs: [],
+            order_inputs: [
                 [
                     98,
                     46,
@@ -276,7 +278,6 @@ Description {
                     116,
                 ],
             ],
-            order_inputs: [],
             outputs: [
                 [
                     103,
