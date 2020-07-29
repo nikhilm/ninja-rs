@@ -1,0 +1,26 @@
+---
+source: parse/tests/parse_test.rs
+expression: ast
+input_file: parse/tests/parse_inputs/symbols_in_values.ninja
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                ":| ||",
+            ),
+            inputs: [],
+            implicit_inputs: [],
+            order_inputs: [],
+            outputs: [
+                [
+                    97,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+    ],
+}

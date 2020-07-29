@@ -668,7 +668,7 @@ impl<'a> Iterator for Lexer<'a> {
                 }
             }
 
-            return match ch {
+            let x = match ch {
                 // TODO: Windows line ending support.
                 // Also not sure if yielding a newline token in the general case really makes
                 // sense. Ninja is sensitive about that only in certain cases.
@@ -684,26 +684,39 @@ impl<'a> Iterator for Lexer<'a> {
                     self.lexer_mode = LexerMode::ValueMode;
                     Some(Ok((Lexeme::Equals, pos)))
                 }
-                b':' => {
-                    self.advance();
-                    Some(Ok((Lexeme::Colon, pos)))
-                }
-                b'|' => {
-                    let next = self.advance();
-                    if let Some(c) = next {
-                        if c == b'|' {
-                            self.advance();
-                            Some(Ok((Lexeme::Pipe2, pos)))
-                        } else {
-                            Some(Ok((Lexeme::Pipe, pos)))
-                        }
+                _ => {
+                    if self.lexer_mode == LexerMode::ValueMode {
+                        // TODO: Add a bunch of tests for this.
+                        Some(self.read_literal_or_ident().map(|x| (x, pos)))
                     } else {
-                        Some(Ok((Lexeme::Pipe, pos)))
+                        match ch {
+                            b':' => {
+                                self.advance();
+                                // TODO: Handle the case where a ':' or '|' is the first character on the right
+                                // side of an assignment. That will affect this bit.
+                                Some(Ok((Lexeme::Colon, pos)))
+                            }
+                            b'|' => {
+                                let next = self.advance();
+                                if let Some(c) = next {
+                                    if c == b'|' {
+                                        self.advance();
+                                        Some(Ok((Lexeme::Pipe2, pos)))
+                                    } else {
+                                        Some(Ok((Lexeme::Pipe, pos)))
+                                    }
+                                } else {
+                                    Some(Ok((Lexeme::Pipe, pos)))
+                                }
+                            }
+                            b'#' => Some(Ok((self.read_comment(), pos))),
+                            _ => Some(self.read_literal_or_ident().map(|x| (x, pos))),
+                        }
                     }
                 }
-                b'#' => Some(Ok((self.read_comment(), pos))),
-                _ => Some(self.read_literal_or_ident().map(|x| (x, pos))),
             };
+            dbg!(&self.lexer_mode, &x);
+            return x;
         }
     }
 }

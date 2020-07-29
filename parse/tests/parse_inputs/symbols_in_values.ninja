@@ -1,0 +1,10 @@
+# Tests special symbols on the right side of assignments
+
+rule echo
+  command = $x$y$z
+
+x = :
+y = # this is a comment
+z = | ||
+
+build a.txt: echo
