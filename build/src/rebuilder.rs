@@ -282,6 +282,21 @@ where
                 },
             )?
         };
+
+        // "When these are out of date, the output is not rebuilt until they are built, but changes
+        // in order-only dependencies alone do not cause the output to be rebuilt."
+        // I feel like this is pretty ambiguous. It can mean:
+        // 1. order-only dependencies only affect the scheduler which should put these in the build
+        //    graph to influence sequencing, but they don't affect the rebuilder.
+        // 2. On the other hand, "when these are out of date" seems to imply that if these are not
+        //    out-of-date, then some other effect happens. i.e. why doesn't it just say "the output
+        //    is not rebuilt until order-only dependencies are built"?
+        // 3. What does "changes to" mean? Changes in the actual set of dependencies (i.e. files
+        //    added or removed), or changes to the files themselves?
+        //
+        // The ninja source code describes order-only deps as "which are needed before the target
+        // builds but which don't cause the target to rebuild" which seems to imply (1).
+
         let dirty = if let Dirtiness::Modified(output_mtime) = outputs_dirty {
             if let Some(inputs_dirty) = inputs_dirty {
                 match inputs_dirty {
@@ -520,5 +535,10 @@ mod test {
             .expect("valid task")
             .expect("non-null");
         assert!(task.is_command());
+    }
+
+    #[test]
+    fn test_order_dependencies_newer() {
+        // TODO: Add a test where order dependencies are newer, but target should not rebuild.
     }
 }

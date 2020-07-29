@@ -240,7 +240,7 @@ where
         }
         for (key, task) in tasks.all_tasks() {
             let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
-            for dep in task.dependencies() {
+            for dep in task.dependencies().iter().chain(task.order_dependencies()) {
                 let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
                 graph.add_edge(source, dep_node, ());
             }
