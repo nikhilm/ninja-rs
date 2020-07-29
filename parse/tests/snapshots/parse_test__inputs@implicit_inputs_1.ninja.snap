@@ -6,6 +6,75 @@ input_file: parse/tests/parse_inputs/implicit_inputs_1.ninja
 Description {
     builds: [
         Build {
+            action: Phony,
+            inputs: [],
+            implicit_inputs: [],
+            outputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    99,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    100,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    109,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    101,
+                    120,
+                    112,
+                    97,
+                    110,
+                    100,
+                    32,
+                    116,
+                    104,
+                    105,
+                    115,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    101,
+                    120,
+                    112,
+                    97,
+                    110,
+                    100,
+                    32,
+                    116,
+                    104,
+                    105,
+                    115,
+                    46,
+                    112,
+                    110,
+                    103,
+                ],
+            ],
+        },
+        Build {
             action: Command(
                 "echo b.txt",
             ),
@@ -185,6 +254,43 @@ Description {
                     116,
                     120,
                     116,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo ",
+            ),
+            inputs: [],
+            implicit_inputs: [
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            outputs: [
+                [
+                    103,
+                    108,
+                    97,
+                ],
+            ],
+        },
+        Build {
+            action: Command(
+                "echo ",
+            ),
+            inputs: [],
+            implicit_inputs: [],
+            outputs: [
+                [
+                    103,
+                    108,
+                    97,
+                    98,
                 ],
             ],
         },
