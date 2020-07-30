@@ -204,6 +204,13 @@ impl ParseState {
         Ok(())
     }
 
+    fn add_default(&mut self, entries: Vec<u8>) {
+        if self.description.defaults.is_none() {
+            self.description.defaults = Some(HashSet::new());
+        }
+        self.description.defaults.as_mut().unwrap().insert(entries);
+    }
+
     fn into_description(self) -> Description {
         self.description
     }

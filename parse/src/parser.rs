@@ -548,6 +548,28 @@ impl<'a> Parser<'a> {
                     // TODO: Error should be from the included path.
                     super::parse_single(&contents, Some(path), state, loader)?;
                 }
+                Lexeme::Default => {
+                    // Consume until we eat a newline assuming paths.
+                    loop {
+                        let (lexeme, _pos) = self
+                            .handle_eof_and_comments("default paths")
+                            .and_then(|res| {
+                                res.map_err(|lex_err| {
+                                    ParseError::from_lexer_error(lex_err, &self.lexer)
+                                })
+                            })?;
+                        match lexeme {
+                            Lexeme::Newline => break,
+                            Lexeme::Expr(_) => {
+                                let path =
+                                    Parser::expr_to_expr(lexeme).eval(&state.bindings.borrow());
+                                state.add_default(path);
+                            }
+                            _ => todo!("{:?}", lexeme),
+                        };
+                    }
+                    ()
+                }
                 Lexeme::Newline => {}
                 Lexeme::Comment(_) => {}
                 _ => {

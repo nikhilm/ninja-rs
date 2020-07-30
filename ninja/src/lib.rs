@@ -1,7 +1,9 @@
 use anyhow::{self, Context};
 use thiserror::Error;
 
-use ninja_build::{build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler};
+use ninja_build::{
+    build, build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler,
+};
 use ninja_metrics::scoped_metric;
 use ninja_parse::{build_representation, Loader};
 use ninja_tasks::description_to_tasks;
@@ -76,7 +78,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // This should also deal with multiple output keys.
     // Since each scheduler has additional execution strategies around async-ness for example, we
     // don't spit out executable tasks, instead just having an enum.
-    let tasks = {
+    let (tasks, requested) = {
         scoped_metric!("to_tasks");
         description_to_tasks(repr)
     };
@@ -99,7 +101,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     //build.build(keys_to_tasks, start);
     {
         scoped_metric!("build");
-        build_externals(scheduler, rebuilder, &tasks, ())?;
+        if let Some(requested) = requested {
+            build(scheduler, rebuilder, &tasks, (), requested)?;
+        } else {
+            build_externals(scheduler, rebuilder, &tasks, ())?;
+        }
     }
     // build log loading later
     if metrics_enabled {

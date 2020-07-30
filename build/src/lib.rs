@@ -255,7 +255,6 @@ where
         tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) -> Result<(), BuildError> {
-        assert!(start.is_none(), "not implemented non-externals yet");
         let graph = Self::build_graph(&tasks);
         let mut build_state = BuildState::default();
         let mut printer = Printer::default();
@@ -264,8 +263,16 @@ where
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
         // TODO: So we really need to enforce no cycles here.
         let mut visitor = DfsPostOrder::empty(&graph);
-        let externals = graph.externals(Direction::Incoming);
-        for start in externals {
+        let requested: Box<dyn Iterator<Item=NodeIndex>> = match start {
+            Some(keys) => {
+                let x = &graph;
+                Box::new(graph
+                    .node_indices()
+                    .filter(move |idx| keys.contains(x[*idx])))
+            },
+            None => Box::new(graph.externals(Direction::Incoming)),
+        };
+        for start in requested {
             visitor.move_to(start);
             while let Some(node) = visitor.next(&graph) {
                 build_state.add_node(&graph, node);
@@ -346,12 +353,12 @@ where
 {
     fn schedule(
         &self,
-        _rebuilder: CompatibleRebuilder<State>,
-        _state: State,
-        _tasks: &Tasks,
-        _start: Vec<Key>,
+        rebuilder: CompatibleRebuilder<State>,
+        state: State,
+        tasks: &Tasks,
+        start: Vec<Key>,
     ) -> Result<(), BuildError> {
-        todo!("Not implemented");
+        self.schedule_internal(rebuilder, state, tasks, Some(start))
     }
 
     fn schedule_externals(
@@ -374,6 +381,16 @@ where
     State: Sync,
 {
     Ok(scheduler.schedule_externals(&rebuilder, state, tasks)?)
+}
+
+pub fn build<K, V, State>(
+    scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
+    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
+    tasks: &Tasks,
+    state: State,
+    start: Vec<K>,
+) -> Result<(), BuildError> {
+    Ok(scheduler.schedule(&rebuilder, state, tasks, start)?)
 }
 
 pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {

@@ -668,7 +668,7 @@ impl<'a> Iterator for Lexer<'a> {
                 }
             }
 
-            let x = match ch {
+            return match ch {
                 // TODO: Windows line ending support.
                 // Also not sure if yielding a newline token in the general case really makes
                 // sense. Ninja is sensitive about that only in certain cases.
@@ -715,8 +715,6 @@ impl<'a> Iterator for Lexer<'a> {
                     }
                 }
             };
-            dbg!(&self.lexer_mode, &x);
-            return x;
         }
     }
 }

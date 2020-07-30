@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 // Paths are canonicalized and mapped to a cache
 // Rules are interned into indices.
 // This actually needs to come after the variable evaluation pass.
@@ -5,6 +7,7 @@
 pub struct Description {
     // will have things like pools and minimum ninja version and defaults and so on.
     pub builds: Vec<Build>,
+    pub defaults: Option<HashSet<Vec<u8>>>,
 }
 
 #[derive(Debug)]
