@@ -147,3 +147,7 @@ b = number_${a}  # Should be number_1
 a = 2
 c = number_${a}  # Should be number_2
 ```
+
+### Defaults are not exactly defaults
+
+Before ninja starts interpreting the user requests, it specifically does a lookup in the build description for an edge whose output is the main build file itself. If this is found, it is run first, allowing it to be updated. Then, ninja will run while respecting `default`, which explains why CMakeLists.txt changes are incorporated even though the `default` list in the generated build.ninja has no dependency on the build.ninja itself.
