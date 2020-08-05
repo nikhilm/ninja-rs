@@ -116,7 +116,18 @@ impl Printer {
                 .unwrap();
             }
         } else {
-            todo!();
+            // TODO: Print build edge.
+            writeln!(self.console, "\nFAILED\n{}", task.command().unwrap()).unwrap();
+            match result.unwrap_err() {
+                err @ CommandTaskError::SpawnFailed(_) => {
+                    writeln!(self.console, "Failed to spawn command: {}", err).unwrap();
+                }
+                CommandTaskError::CommandFailed(out) => {
+                    // ninja interleaves streams, but this will do for now.
+                    self.console.write(&out.stdout).unwrap();
+                    self.console.write(&out.stderr).unwrap();
+                }
+            }
         }
     }
 }
@@ -279,13 +290,15 @@ where
         // Cannot use Topo since it doesn't offer move_to and partial traversals.
         // TODO: So we really need to enforce no cycles here.
         let mut visitor = DfsPostOrder::empty(&graph);
-        let requested: Box<dyn Iterator<Item=NodeIndex>> = match start {
+        let requested: Box<dyn Iterator<Item = NodeIndex>> = match start {
             Some(keys) => {
                 let x = &graph;
-                Box::new(graph
-                    .node_indices()
-                    .filter(move |idx| keys.contains(x[*idx])))
-            },
+                Box::new(
+                    graph
+                        .node_indices()
+                        .filter(move |idx| keys.contains(x[*idx])),
+                )
+            }
             None => Box::new(graph.externals(Direction::Incoming)),
         };
         for start in requested {

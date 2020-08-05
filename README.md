@@ -42,7 +42,7 @@ go to fully support everything ninja supports.
 - [X] Basic command-line compatibility with Ninja
 - [X] Implicit and ordered dependencies
 - [X] Variables and scoping
-- [ ] Handling failed commands correctly
+- [X] Handling failed commands correctly
 - [ ] Pools
 - [ ] Path canonicalization
 - [ ] Windows support (Nothing intentionally stopping it, but not tested either.)
