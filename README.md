@@ -11,17 +11,17 @@ ninja-rs was created for several different reasons:
    for me as it formalized and distilled build systems. This was an attempt to
    implement a real build system using the ideas in that paper. Read the notes
    on design below for more about this. Evan Martin, the original author of
-   ninja, also wishes they had this paper around [^reflection].
+   ninja, also [wishes][reflection] they had this paper around.
 
 2. An exercise in using Rust outside of my day job for a real project.
 
 3. I had never written a proper parser before.
 
 ninja is a fairly simple build system (it was explicitly designed to be the
-"assembly language" [^reflection] of build systems), so I figured it would be a
+"assembly language" of build systems), so I figured it would be a
 good place to start. It is relatively small, and the original code is quite
 readable. It doesn't concern itself with any networking or packaging. As Evan
-Martin says [^reflection]
+Martin [says][reflection]:
 
 > Ninja is pretty easy to implement for the fun 20% of it and the remaining 80%
 > is "just" some fiddly details.
@@ -37,21 +37,21 @@ At this point the parser is fairly feature complete and ninja-rs is capable of
 building the simple CMake hello-world in this repository. It has a long way to
 go to fully support everything ninja supports.
 
-[X] Working parser and topological sort based builder
-[X] mtime based rebuilding
-[X] Basic command-line compatibility with Ninja
-[X] Implicit and ordered dependencies
-[X] Variables and scoping
-[ ] Handling failed commands correctly
-[ ] Pools
-[ ] Path canonicalization
-[ ] Windows support (Nothing intentionally stopping it, but not tested either.)
-[ ] Ninja log
-[ ] build file regeneration
-[ ] C compiler include parsing (`-M` for GCC/clang, `/showIncludes` for MSVC) and dependency log
-[ ] Dynamic dependencies
-[ ] Better pretty-printing
-[ ] [Extra tools](https://ninja-build.org/manual.html#_extra_tools)
+- [X] Working parser and topological sort based builder
+- [X] mtime based rebuilding
+- [X] Basic command-line compatibility with Ninja
+- [X] Implicit and ordered dependencies
+- [X] Variables and scoping
+- [ ] Handling failed commands correctly
+- [ ] Pools
+- [ ] Path canonicalization
+- [ ] Windows support (Nothing intentionally stopping it, but not tested either.)
+- [ ] Ninja log
+- [ ] build file regeneration
+- [ ] C compiler include parsing (`-M` for GCC/clang, `/showIncludes` for MSVC) and dependency log
+- [ ] Dynamic dependencies
+- [ ] Better pretty-printing
+- [ ] [Extra tools](https://ninja-build.org/manual.html#_extra_tools)
 
 ## Design
 
@@ -87,7 +87,10 @@ The implementation is a collection of crates. The parser can be used by itself.
 The lexer preserves relatively complete information about tokens (unlike
 ninja), which could allow things like a `ninja-fmt`. I originally envisioned
 the parser yielding per-file ASTs, but the way ninja handles scoping across
-`include` and `subninja` rules[^1], makes this intractable.
+`include` and `subninja` rules, makes this intractable. Specifically,
+variables in the included file are evaluated immediately within the current
+environment, so this cannot be parallelized and a per-file AST is meaningless
+as soon as inclusions happen.
 
 The main `ninja` crate simply assembles all these pieces together.
 Theoretically, one could use the `tasks` and `build` crates to create another
@@ -130,8 +133,4 @@ to ensure compliance with ninja and also to act as regression tests. These
 acceptance tests are just `.ninja` files, which can be quickly run with `ninja`
 to determine if they are following "the spec".
 
-# Footnotes
-
-[^reflection]: http://neugierig.org/software/blog/2020/05/ninja.html
-
-[^1]: Specifically, variables in the included file are evaluated immediately within the current environment, so this cannot be parallelized and a per-file AST is meaningless as soon as inclusions happen.
+[reflection]: http://neugierig.org/software/blog/2020/05/ninja.html
