@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
+description = "A rust implementation of the ninja build system."
+license = "Apache-2.0"
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/nikhilm/ninja-rs"
+keywords = ["ninja", "build-system", "tooling"]
+categories = ["development-tools", "build-systems"]
+
+
 [dependencies]
 ninja-parse = { path = "../parse" }
 ninja-build = { path = "../build" }
