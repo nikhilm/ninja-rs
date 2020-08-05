@@ -52,6 +52,43 @@ go to fully support everything ninja supports.
 - [ ] Dynamic dependencies
 - [ ] Better pretty-printing
 - [ ] [Extra tools](https://ninja-build.org/manual.html#_extra_tools)
+- [ ] Provide releases
+- [ ] Make `ninjars` available as a `cargo install`-able command.
+
+## Usage
+
+Make sure you have at least Rust 1.46-nightly (that is the only one I've tested with). Clone this repository, then:
+
+```
+cargo build --release -p ninja --bin ninja
+```
+
+This will result in a binary `./target/release/ninja` which is statically linked and can be copied wherever you need.
+
+## Contributing
+
+Contributions are welcome. Please understand that I have limited time to look
+at pull requests, so I may not reply promptly.  For bug fixes, simply submit a
+PR, ideally with a regression test for that bug.
+
+If you are considering implementing a major feature, please [file an issue](https://github.com/nikhilm/ninja-rs/issues)
+discussing the feature and how you intend to implement it. There may be
+multiple solutions and trade-offs. A thousand-line PR with a major feature is
+likely to get rejected if you do not discuss it first.
+
+### Testing
+
+Running this in the workspace directory will run all tests. Please make sure
+all tests pass when you submit a PR. Please add a test for any new code
+introduced. PRs with tests are easier to review and accept.
+
+```
+RUST_BACKTRACE=full cargo test
+```
+
+### Formatting
+
+Run `cargo fmt` over the code before submitting.
 
 ## Design
 
