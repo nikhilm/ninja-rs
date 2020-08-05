@@ -5,4 +5,5 @@ input_file: parse/tests/parse_inputs/comments_in_odd_places_2.ninja
 ---
 Description {
     builds: [],
+    defaults: None,
 }

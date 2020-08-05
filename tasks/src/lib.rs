@@ -254,9 +254,10 @@ mod test {
                 order_inputs: vec![],
                 outputs: vec![b"output9.txt".to_vec(), b"output2.txt".to_vec()],
             }],
+            defaults: None,
         };
 
-        let tasks = description_to_tasks(desc);
+        let (tasks, _) = description_to_tasks(desc);
         assert_eq!(tasks.all_tasks().len(), 3);
 
         // find the multi.
@@ -300,9 +301,10 @@ mod test {
                 order_inputs: vec![],
                 outputs: vec![b"z.txt".to_vec()],
             }],
+            defaults: None,
         };
 
-        let tasks = description_to_tasks(desc);
+        let (tasks, _) = description_to_tasks(desc);
         assert_eq!(tasks.all_tasks().len(), 1);
         let task = tasks
             .task(&Key::Single(b"z.txt".to_vec()))
@@ -321,9 +323,10 @@ mod test {
                 order_inputs: vec![b"c.txt".to_vec(), b"d.txt".to_vec()],
                 outputs: vec![b"z.txt".to_vec()],
             }],
+            defaults: None,
         };
 
-        let tasks = description_to_tasks(desc);
+        let (tasks, _) = description_to_tasks(desc);
         assert_eq!(tasks.all_tasks().len(), 1);
         let task = tasks
             .task(&Key::Single(b"z.txt".to_vec()))

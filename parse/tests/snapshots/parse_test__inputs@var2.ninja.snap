@@ -5,4 +5,5 @@ input_file: parse/tests/parse_inputs/var2.ninja
 ---
 Description {
     builds: [],
+    defaults: None,
 }
