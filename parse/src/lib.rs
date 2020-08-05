@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#![feature(is_sorted)]
 // Holding place until we figure out refactor.
 use ast as past;
 use ninja_metrics::scoped_metric;
