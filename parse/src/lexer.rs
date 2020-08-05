@@ -301,7 +301,6 @@ impl<'a> Lexer<'a> {
     pub fn to_position(&self, pos: Pos) -> Position {
         // maybe a consumed Lexer _should_ return some new object? that has line offsets and error
         // things populated?
-        assert!(self.line_offsets.is_sorted());
         if pos.0 > self.data.len() {
             panic!("position {} past end of data {}", pos.0, self.data.len());
         }
