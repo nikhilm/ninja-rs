@@ -8,6 +8,6 @@ members = [
 ]
 
 [profile.release]
-opt-level = 'z'
 lto = true
 codegen-units = 1
+debug = true
