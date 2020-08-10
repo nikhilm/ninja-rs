@@ -47,15 +47,12 @@ type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
 #[derive(Error, Debug)]
 pub enum BuildError {
-    #[error("{0}")]
-    RebuilderError(#[from] RebuilderError),
     #[error("command pool panic")]
     CommandPoolPanic,
     #[error("command failed {0}")]
     CommandFailed(#[from] CommandTaskError),
-    // TODO: Should not be necessary
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    RebuilderError(#[from] anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -327,7 +324,7 @@ where
                         let rebuilder_result = rebuilder.build(key.clone(), None, task);
                         if let Err(e) = rebuilder_result {
                             // TODO: convey the real error.
-                            return Err(From::from(anyhow::anyhow!("Rebuilder error: {:?}", e)));
+                            return Err(From::from(anyhow::Error::new(e)));
                         }
                         let build_task = rebuilder_result.unwrap();
                         printer.started(task);
@@ -375,7 +372,7 @@ impl<State> interface::Scheduler<Key, TaskResult, State> for ParallelTopoSchedul
 where
     State: Sync,
 {
-    type BuildError = BuildError;
+    type Error = BuildError;
 
     fn schedule(
         &self,
@@ -383,7 +380,7 @@ where
         state: State,
         tasks: &Tasks,
         start: Vec<Key>,
-    ) -> Result<(), BuildError> {
+    ) -> Result<(), Self::Error> {
         self.schedule_internal(rebuilder, state, tasks, Some(start))
     }
 
@@ -392,32 +389,34 @@ where
         rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
         state: State,
         tasks: &Tasks,
-    ) -> Result<(), BuildError> {
+    ) -> Result<(), Self::Error> {
         self.schedule_internal(rebuilder, state, tasks, None)
     }
 }
 
-pub fn build_externals<K, V, State>(
-    scheduler: impl interface::Scheduler<K, V, State>,
+pub fn build_externals<K, V, State, Scheduler>(
+    scheduler: Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
     state: State,
 ) -> anyhow::Result<()>
 where
     State: Sync,
+    Scheduler: interface::Scheduler<K, V, State>
 {
     Ok(scheduler.schedule_externals(rebuilder, state, tasks)?)
 }
 
-pub fn build<K, V, State>(
-    scheduler: impl interface::Scheduler<K, V, State>,
+pub fn build<K, V, State, Scheduler>(
+    scheduler: Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
     state: State,
     start: Vec<K>,
-) -> anyhow::Result<()>
+) -> Result<(), Scheduler::Error>
 where
     State: Sync,
+    Scheduler: interface::Scheduler<K, V, State>
 {
     Ok(scheduler.schedule(rebuilder, state, tasks, start)?)
 }

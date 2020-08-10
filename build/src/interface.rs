@@ -36,7 +36,7 @@ impl<V> Debug for dyn BuildTask<V> {
 }
 
 pub trait Rebuilder<K, V> {
-    type Error: std::error::Error;
+    type Error: std::error::Error + Send + Sync + 'static;
     fn build(
         &self,
         key: K,
@@ -46,19 +46,19 @@ pub trait Rebuilder<K, V> {
 }
 
 pub trait Scheduler<K, V, State> {
-    type BuildError: std::error::Error + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
     fn schedule(
         &self,
         rebuilder: &impl Rebuilder<K, V>,
         state: State,
         tasks: &Tasks,
         start: Vec<K>,
-    ) -> Result<(), Self::BuildError>;
+    ) -> Result<(), Self::Error>;
 
     fn schedule_externals(
         &self,
         rebuilder: &impl Rebuilder<K, V>,
         state: State,
         tasks: &Tasks,
-    ) -> Result<(), Self::BuildError>;
+    ) -> Result<(), Self::Error>;
 }
