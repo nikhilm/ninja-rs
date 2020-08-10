@@ -20,7 +20,7 @@ use super::{
     interface::Rebuilder,
     rebuilder::{Dirtiness, MTimeRebuilder, MTimeStateI},
 };
-use ninja_tasks::{Key, Task, TaskVariant};
+use crate::task::{Key, Task, TaskVariant};
 use std::{cell::RefCell, collections::HashMap, time::SystemTime};
 
 fn dirtiness_strategy_single() -> impl Strategy<Value = Dirtiness> {

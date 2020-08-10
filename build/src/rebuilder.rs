@@ -15,8 +15,8 @@
  */
 
 use super::TaskResult;
+use crate::task::{Key, Task};
 use ninja_metrics::scoped_metric;
-use ninja_tasks::{Key, Task};
 use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
@@ -355,7 +355,7 @@ mod test {
     };
 
     use super::*;
-    use ninja_tasks::*;
+    use crate::task::*;
 
     macro_rules! mocked_rebuilder {
         ($path:ident, $body:expr) => {{

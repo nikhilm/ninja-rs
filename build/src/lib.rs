@@ -26,12 +26,12 @@ use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
-use ninja_tasks::{Key, Task, Tasks};
 
 pub mod disk_interface;
 mod interface;
 mod rebuilder;
-mod task;
+pub mod task;
+use task::{Key, Task, Tasks};
 
 #[cfg(test)]
 mod property_tests;

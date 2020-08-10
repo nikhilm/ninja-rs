@@ -18,11 +18,11 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{
-    build, build_externals, default_mtimestate, MTimeRebuilder, ParallelTopoScheduler,
+    build, build_externals, default_mtimestate, task::description_to_tasks, MTimeRebuilder,
+    ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
 use ninja_parse::{build_representation, Loader};
-use ninja_tasks::description_to_tasks;
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 
 /// Nothing to do with rustc debug vs. release.

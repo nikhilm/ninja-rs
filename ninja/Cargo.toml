@@ -15,7 +15,6 @@ categories = ["development-tools", "build-systems"]
 [dependencies]
 ninja-parse = { path = "../parse" }
 ninja-build = { path = "../build" }
-ninja-tasks = { path = "../tasks" }
 ninja-metrics = { path = "../metrics" }
 once_cell = "^1.4"
 num_cpus = "^1.0"

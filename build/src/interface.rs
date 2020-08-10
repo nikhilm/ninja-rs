@@ -16,7 +16,7 @@
 
 use async_trait::async_trait;
 use core::fmt::Debug;
-use ninja_tasks::{Task, Tasks};
+use crate::task::{Task, Tasks};
 
 #[async_trait(?Send)]
 pub trait BuildTask<State, V> {
