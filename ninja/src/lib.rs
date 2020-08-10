@@ -113,14 +113,12 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // filesystem.
     let rebuilder: MTimeRebuilder<_> = MTimeRebuilder::new(default_mtimestate());
     let scheduler = ParallelTopoScheduler::new(config.parallelism);
-    // let start = Start::All; // TODO: filter_keys();
-    //build.build(keys_to_tasks, start);
     {
         scoped_metric!("build");
         if let Some(requested) = requested {
-            build(scheduler, &rebuilder, &tasks, (), requested)?;
+            build(scheduler, &rebuilder, &tasks, requested)?;
         } else {
-            build_externals(scheduler, &rebuilder, &tasks, ())?;
+            build_externals(scheduler, &rebuilder, &tasks)?;
         }
     }
     // build log loading later

@@ -45,12 +45,11 @@ pub trait Rebuilder<K, V> {
     ) -> Result<Box<dyn BuildTask<V>>, Self::Error>;
 }
 
-pub trait Scheduler<K, V, State> {
+pub trait Scheduler<K, V> {
     type Error: std::error::Error + Send + Sync + 'static;
     fn schedule(
         &self,
         rebuilder: &impl Rebuilder<K, V>,
-        state: State,
         tasks: &Tasks,
         start: Vec<K>,
     ) -> Result<(), Self::Error>;
@@ -58,7 +57,6 @@ pub trait Scheduler<K, V, State> {
     fn schedule_externals(
         &self,
         rebuilder: &impl Rebuilder<K, V>,
-        state: State,
         tasks: &Tasks,
     ) -> Result<(), Self::Error>;
 }

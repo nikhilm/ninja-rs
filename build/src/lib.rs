@@ -228,18 +228,14 @@ impl BuildState {
 }
 
 #[derive(Debug)]
-pub struct ParallelTopoScheduler<State> {
-    _unused_state: std::marker::PhantomData<State>,
+pub struct ParallelTopoScheduler {
     parallelism: usize,
 }
 
-impl<State> ParallelTopoScheduler<State>
-where
-    State: Sync,
+impl ParallelTopoScheduler
 {
     pub fn new(parallelism: usize) -> Self {
         ParallelTopoScheduler {
-            _unused_state: std::marker::PhantomData::default(),
             parallelism,
         }
     }
@@ -274,7 +270,6 @@ where
     fn schedule_internal(
         &self,
         rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
-        state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) -> Result<(), BuildError> {
@@ -314,7 +309,6 @@ where
 
         let mut pending = Vec::new();
         let sem = Semaphore::new(self.parallelism);
-        let state_ref = &state;
         local_set.block_on(&mut runtime, async {
             while !build_state.done() {
                 if let Some(node) = build_state.next_ready() {
@@ -366,59 +360,49 @@ where
     }
 }
 
-type CompatibleRebuilder = Box<dyn interface::Rebuilder<Key, TaskResult, Error = RebuilderError>>;
-
-impl<State> interface::Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State>
-where
-    State: Sync,
+impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler
 {
     type Error = BuildError;
 
     fn schedule(
         &self,
         rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
-        state: State,
         tasks: &Tasks,
         start: Vec<Key>,
     ) -> Result<(), Self::Error> {
-        self.schedule_internal(rebuilder, state, tasks, Some(start))
+        self.schedule_internal(rebuilder,  tasks, Some(start))
     }
 
     fn schedule_externals(
         &self,
         rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
-        state: State,
         tasks: &Tasks,
     ) -> Result<(), Self::Error> {
-        self.schedule_internal(rebuilder, state, tasks, None)
+        self.schedule_internal(rebuilder,  tasks, None)
     }
 }
 
-pub fn build_externals<K, V, State, Scheduler>(
+pub fn build_externals<K, V, Scheduler>(
     scheduler: Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
-    state: State,
-) -> anyhow::Result<()>
+) -> Result<(), Scheduler::Error>
 where
-    State: Sync,
-    Scheduler: interface::Scheduler<K, V, State>
+    Scheduler: interface::Scheduler<K, V>
 {
-    Ok(scheduler.schedule_externals(rebuilder, state, tasks)?)
+    Ok(scheduler.schedule_externals(rebuilder, tasks)?)
 }
 
-pub fn build<K, V, State, Scheduler>(
+pub fn build<K, V, Scheduler>(
     scheduler: Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
-    state: State,
     start: Vec<K>,
 ) -> Result<(), Scheduler::Error>
 where
-    State: Sync,
-    Scheduler: interface::Scheduler<K, V, State>
+    Scheduler: interface::Scheduler<K, V>
 {
-    Ok(scheduler.schedule(rebuilder, state, tasks, start)?)
+    Ok(scheduler.schedule(rebuilder, tasks, start)?)
 }
 
 pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {
