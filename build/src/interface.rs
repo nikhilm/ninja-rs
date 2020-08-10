@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
+use crate::task::{Task, Tasks};
 use async_trait::async_trait;
 use core::fmt::Debug;
-use crate::task::{Task, Tasks};
 
 #[async_trait(?Send)]
-pub trait BuildTask<State, V> {
+pub trait BuildTask<V> {
     // Cannot pass state until we have structured concurrency.
-    async fn run(&self, state: &State) -> V;
+    async fn run(&self) -> V;
 
     #[cfg(test)]
     fn is_command(&self) -> bool {
@@ -29,33 +29,36 @@ pub trait BuildTask<State, V> {
     }
 }
 
-impl<State, V> Debug for dyn BuildTask<State, V> {
+impl<V> Debug for dyn BuildTask<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "BuildTask{{}}")
     }
 }
 
-pub trait Rebuilder<K, V, State, RebuilderError> {
+pub trait Rebuilder<K, V> {
+    type Error: std::error::Error;
     fn build(
         &self,
         key: K,
-        // current_value: V,
+        current_value: Option<V>,
         task: &Task,
-    ) -> Result<Option<Box<dyn BuildTask<State, V>>>, RebuilderError>;
+    ) -> Result<Box<dyn BuildTask<V>>, Self::Error>;
 }
 
-pub trait Scheduler<K, V, State, BuildError, RebuilderError> {
+pub trait Scheduler<K, V, State> {
+    type BuildError: std::error::Error + Send + Sync + 'static;
     fn schedule(
         &self,
-        rebuilder: &dyn Rebuilder<K, V, State, RebuilderError>,
+        rebuilder: &impl Rebuilder<K, V>,
         state: State,
         tasks: &Tasks,
         start: Vec<K>,
-    ) -> Result<(), BuildError>;
+    ) -> Result<(), Self::BuildError>;
+
     fn schedule_externals(
         &self,
-        rebuilder: &dyn Rebuilder<K, V, State, RebuilderError>,
+        rebuilder: &impl Rebuilder<K, V>,
         state: State,
         tasks: &Tasks,
-    ) -> Result<(), BuildError>;
+    ) -> Result<(), Self::BuildError>;
 }

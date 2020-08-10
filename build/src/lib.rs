@@ -26,7 +26,6 @@ use thiserror::Error;
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
 
-
 pub mod disk_interface;
 mod interface;
 mod rebuilder;
@@ -37,15 +36,12 @@ use task::{Key, Task, Tasks};
 mod property_tests;
 
 use disk_interface::SystemDiskInterface;
-use interface::*;
 pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
 use task::{CommandTaskError, CommandTaskResult};
 
 // Needs to be public for some weird reason.
 // This genericity is getting very wonky.
 type TaskResult = CommandTaskResult;
-
-type CompatibleRebuilder<'a, State> = &'a (dyn Rebuilder<Key, TaskResult, State, RebuilderError>);
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
@@ -57,6 +53,9 @@ pub enum BuildError {
     CommandPoolPanic,
     #[error("command failed {0}")]
     CommandFailed(#[from] CommandTaskError),
+    // TODO: Should not be necessary
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -233,7 +232,7 @@ impl BuildState {
 
 #[derive(Debug)]
 pub struct ParallelTopoScheduler<State> {
-    _unused: std::marker::PhantomData<State>,
+    _unused_state: std::marker::PhantomData<State>,
     parallelism: usize,
 }
 
@@ -243,7 +242,7 @@ where
 {
     pub fn new(parallelism: usize) -> Self {
         ParallelTopoScheduler {
-            _unused: std::marker::PhantomData::default(),
+            _unused_state: std::marker::PhantomData::default(),
             parallelism,
         }
     }
@@ -277,7 +276,7 @@ where
 
     fn schedule_internal(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
+        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
         state: State,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
@@ -325,23 +324,18 @@ where
                     let key = graph[node];
                     if let Some(task) = tasks.task(key) {
                         // TODO: handle error
-                        let rebuilder_result = rebuilder.build(key.clone(), task);
+                        let rebuilder_result = rebuilder.build(key.clone(), None, task);
                         if let Err(e) = rebuilder_result {
-                            return Err(From::from(e));
+                            // TODO: convey the real error.
+                            return Err(From::from(anyhow::anyhow!("Rebuilder error: {:?}", e)));
                         }
                         let build_task = rebuilder_result.unwrap();
-                        if let Some(build_task) = build_task {
-                            printer.started(task);
-                            let sem = &sem;
-                            pending.push(Box::pin(async move {
-                                let _p = sem.acquire().await;
-                                futures::future::ready((node, build_task.run(state_ref).await))
-                                    .await
-                            }));
-                        } else {
-                            // Phony or something. Always succeeds.
-                            build_state.finish_node(&graph, node, true);
-                        }
+                        printer.started(task);
+                        let sem = &sem;
+                        pending.push(Box::pin(async move {
+                            let _p = sem.acquire().await;
+                            futures::future::ready((node, build_task.run().await)).await
+                        }));
                     } else {
                         // No task, so this is a source and we are done.
                         build_state.finish_node(&graph, node, true);
@@ -375,14 +369,17 @@ where
     }
 }
 
-impl<State> Scheduler<Key, TaskResult, State, BuildError, RebuilderError>
-    for ParallelTopoScheduler<State>
+type CompatibleRebuilder = Box<dyn interface::Rebuilder<Key, TaskResult, Error = RebuilderError>>;
+
+impl<State> interface::Scheduler<Key, TaskResult, State> for ParallelTopoScheduler<State>
 where
     State: Sync,
 {
+    type BuildError = BuildError;
+
     fn schedule(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
+        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
         state: State,
         tasks: &Tasks,
         start: Vec<Key>,
@@ -392,7 +389,7 @@ where
 
     fn schedule_externals(
         &self,
-        rebuilder: CompatibleRebuilder<State>,
+        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
         state: State,
         tasks: &Tasks,
     ) -> Result<(), BuildError> {
@@ -401,25 +398,28 @@ where
 }
 
 pub fn build_externals<K, V, State>(
-    scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
-    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
+    scheduler: impl interface::Scheduler<K, V, State>,
+    rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
     state: State,
-) -> Result<(), BuildError>
+) -> anyhow::Result<()>
 where
     State: Sync,
 {
-    Ok(scheduler.schedule_externals(&rebuilder, state, tasks)?)
+    Ok(scheduler.schedule_externals(rebuilder, state, tasks)?)
 }
 
 pub fn build<K, V, State>(
-    scheduler: impl Scheduler<K, V, State, BuildError, RebuilderError>,
-    rebuilder: impl Rebuilder<K, V, State, RebuilderError>,
+    scheduler: impl interface::Scheduler<K, V, State>,
+    rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
     state: State,
     start: Vec<K>,
-) -> Result<(), BuildError> {
-    Ok(scheduler.schedule(&rebuilder, state, tasks, start)?)
+) -> anyhow::Result<()>
+where
+    State: Sync,
+{
+    Ok(scheduler.schedule(rebuilder, state, tasks, start)?)
 }
 
 pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {

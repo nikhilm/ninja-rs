@@ -9,6 +9,7 @@ ninja-parse = { path = "../parse" }
 ninja-metrics = { path = "../metrics" }
 petgraph = "^0.5"
 thiserror = "^1.0"
+anyhow = "^1.0"
 
 futures = "0.3"
 async-trait = "0.1"

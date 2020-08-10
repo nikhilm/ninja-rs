@@ -14,15 +14,14 @@
  * limitations under the License.
  */
 
-use std::{collections::HashMap, fmt::Display};
-use std::process::Output;
+use std::{collections::HashMap, fmt::Display, os::unix::process::ExitStatusExt, process::Output};
 
 use async_trait::async_trait;
 use thiserror::Error;
 use tokio::process::Command;
 
-use ninja_parse::repr::*;
 use crate::interface::BuildTask;
+use ninja_parse::repr::*;
 
 use crate::TaskResult;
 
@@ -60,14 +59,29 @@ impl CommandTask {
 }
 
 #[async_trait(?Send)]
-impl<State> BuildTask<State, TaskResult> for CommandTask {
-    async fn run(&self, _state: &State) -> TaskResult {
+impl BuildTask<TaskResult> for CommandTask {
+    async fn run(&self) -> TaskResult {
         self.run_command().await
     }
 
     #[cfg(test)]
     fn is_command(&self) -> bool {
         true
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct NoopTask {}
+
+#[async_trait(?Send)]
+impl BuildTask<TaskResult> for NoopTask {
+    async fn run(&self) -> TaskResult {
+        futures::future::ready(Ok(std::process::Output {
+            status: ExitStatusExt::from_raw(0),
+            stdout: vec![],
+            stderr: vec![],
+        }))
+        .await
     }
 }
 

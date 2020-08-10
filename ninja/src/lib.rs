@@ -18,8 +18,8 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{
-    build, build_externals, default_mtimestate, task::description_to_tasks, MTimeRebuilder,
-    ParallelTopoScheduler,
+    build, build_externals, default_mtimestate, task::description_to_tasks, BuildError,
+    MTimeRebuilder, ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
 use ninja_parse::{build_representation, Loader};
@@ -118,9 +118,9 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     {
         scoped_metric!("build");
         if let Some(requested) = requested {
-            build(scheduler, rebuilder, &tasks, (), requested)?;
+            build(scheduler, &rebuilder, &tasks, (), requested)?;
         } else {
-            build_externals(scheduler, rebuilder, &tasks, ())?;
+            build_externals(scheduler, &rebuilder, &tasks, ())?;
         }
     }
     // build log loading later

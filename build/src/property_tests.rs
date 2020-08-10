@@ -64,7 +64,7 @@ proptest! {
         let state = MapMTimeState { map: RefCell::new(mtimes) };
         let rebuilder = MTimeRebuilder::new(state);
         let maybe_task =
-        rebuilder.build(Key::Single(b"foo".to_vec()), &Task {
+        rebuilder.build(Key::Single(b"foo".to_vec()), None, &Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
                             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
@@ -73,14 +73,14 @@ proptest! {
             (Dirtiness::Modified(a), Dirtiness::Modified(b)) => {
                 let maybe_task = maybe_task.expect("not an error");
                 if a < b {
-                    maybe_task.expect_none("if input is older, no rebuild expected");
+                    assert!(!maybe_task.is_command(), "if input is older, no rebuild expected");
                 } else {
-                    maybe_task.expect("if input is newer, rebuild expected");
+                    assert!(maybe_task.is_command(), "if input is newer, rebuild expected");
                 }
             },
-            (Dirtiness::Modified(a), _) => { maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").expect("should rebuild"); },
+            (Dirtiness::Modified(a), _) => { assert!(maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").is_command(), "should rebuild"); },
             (Dirtiness::DoesNotExist, _) => { maybe_task.expect_err("missing input"); },
-            (Dirtiness::Dirty, _) => { maybe_task.expect("not an error").expect("if input is dirty, need to rebuild"); },
+            (Dirtiness::Dirty, _) => { assert!(maybe_task.expect("not an error").is_command(), "if input is dirty, need to rebuild"); },
             (Dirtiness::Clean, _) => { panic!("Should never happen"); },
         }
     }

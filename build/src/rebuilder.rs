@@ -31,7 +31,7 @@ use std::os::unix::ffi::OsStrExt;
 use crate::{
     disk_interface::DiskInterface,
     interface::{BuildTask, Rebuilder},
-    task::CommandTask,
+    task::{CommandTask, NoopTask},
 };
 
 /**
@@ -198,15 +198,18 @@ pub enum RebuilderError {
     IOError(#[from] std::io::Error),
 }
 
-impl<State> Rebuilder<Key, TaskResult, (), RebuilderError> for MTimeRebuilder<State>
+impl<State> Rebuilder<Key, TaskResult> for MTimeRebuilder<State>
 where
     State: MTimeStateI,
 {
+    type Error = RebuilderError;
+
     fn build(
         &self,
         key: Key,
+        _unused: Option<TaskResult>,
         task: &Task,
-    ) -> Result<Option<Box<dyn BuildTask<(), TaskResult>>>, RebuilderError> {
+    ) -> Result<Box<dyn BuildTask<TaskResult>>, Self::Error> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
 
@@ -336,11 +339,9 @@ where
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Ok(Some(Box::new(CommandTask::new(
-                task.command().unwrap().clone(),
-            ))))
+            Ok(Box::new(CommandTask::new(task.command().unwrap().clone())))
         } else {
-            Ok(None)
+            Ok(Box::new(NoopTask::default()))
         }
     }
 }
@@ -393,9 +394,8 @@ mod test {
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         let task = rebuilder
-            .build(Key::Single(b"foo.o".to_vec()), &task)
-            .expect("valid task")
-            .expect("non-null");
+            .build(Key::Single(b"foo.o".to_vec()), None, &task)
+            .expect("valid task");
         assert!(task.is_command());
     }
 
@@ -415,6 +415,7 @@ mod test {
         // "dirtiness" state instead of a mtimestate.
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
+            None,
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 order_dependencies: vec![],
@@ -431,6 +432,7 @@ mod test {
 
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
+            None,
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 order_dependencies: vec![],
@@ -461,6 +463,7 @@ mod test {
                 Key::Single(b"phony_user".to_vec()),
                 Key::Single(b"phony_user2".to_vec()),
             ]),
+            None,
             &task,
         );
         assert!(task.is_err());
@@ -480,6 +483,7 @@ mod test {
         };
         let task = rebuilder.build(
             Key::Single(b"phony_target_that_does_not_exist".to_vec()),
+            None,
             &Task {
                 dependencies: vec![],
                 order_dependencies: vec![],
@@ -492,6 +496,7 @@ mod test {
         // cache should treat it as dirty.
         let task = rebuilder.build(
             Key::Single(b"phony_user".to_vec()),
+            None,
             &Task {
                 dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
                 order_dependencies: vec![],
@@ -542,14 +547,13 @@ mod test {
 
         // This would previously end up marking foo.o as Clean in the cache.
         let task = rebuilder
-            .build(Key::Single(b"foo.o".to_vec()), &cc_task)
+            .build(Key::Single(b"foo.o".to_vec()), None, &cc_task)
             .expect("valid task");
-        assert!(task.is_none(), "foo.o newer than foo.c");
+        assert!(!task.is_command(), "foo.o newer than foo.c");
 
         let task = rebuilder
-            .build(Key::Single(b"foo".to_vec()), &link_task)
-            .expect("valid task")
-            .expect("non-null");
+            .build(Key::Single(b"foo".to_vec()), None, &link_task)
+            .expect("valid task");
         assert!(task.is_command());
     }
 
