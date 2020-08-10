@@ -232,12 +232,9 @@ pub struct ParallelTopoScheduler {
     parallelism: usize,
 }
 
-impl ParallelTopoScheduler
-{
+impl ParallelTopoScheduler {
     pub fn new(parallelism: usize) -> Self {
-        ParallelTopoScheduler {
-            parallelism,
-        }
+        ParallelTopoScheduler { parallelism }
     }
 
     fn build_graph(tasks: &Tasks) -> SchedulerGraph {
@@ -360,8 +357,7 @@ impl ParallelTopoScheduler
     }
 }
 
-impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler
-{
+impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler {
     type Error = BuildError;
 
     fn schedule(
@@ -370,7 +366,7 @@ impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler
         tasks: &Tasks,
         start: Vec<Key>,
     ) -> Result<(), Self::Error> {
-        self.schedule_internal(rebuilder,  tasks, Some(start))
+        self.schedule_internal(rebuilder, tasks, Some(start))
     }
 
     fn schedule_externals(
@@ -378,7 +374,7 @@ impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler
         rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
         tasks: &Tasks,
     ) -> Result<(), Self::Error> {
-        self.schedule_internal(rebuilder,  tasks, None)
+        self.schedule_internal(rebuilder, tasks, None)
     }
 }
 
@@ -388,7 +384,7 @@ pub fn build_externals<K, V, Scheduler>(
     tasks: &Tasks,
 ) -> Result<(), Scheduler::Error>
 where
-    Scheduler: interface::Scheduler<K, V>
+    Scheduler: interface::Scheduler<K, V>,
 {
     Ok(scheduler.schedule_externals(rebuilder, tasks)?)
 }
@@ -400,7 +396,7 @@ pub fn build<K, V, Scheduler>(
     start: Vec<K>,
 ) -> Result<(), Scheduler::Error>
 where
-    Scheduler: interface::Scheduler<K, V>
+    Scheduler: interface::Scheduler<K, V>,
 {
     Ok(scheduler.schedule(rebuilder, tasks, start)?)
 }

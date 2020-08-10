@@ -48,7 +48,7 @@ impl MTimeStateI for MapMTimeState {
         }
     }
 
-    fn mark_dirty(&self, key: Key, is_dirty: bool) {
+    fn mark_dirty(&self, _key: Key, _is_dirty: bool) {
         // TODO
     }
 }
@@ -78,7 +78,7 @@ proptest! {
                     assert!(maybe_task.is_command(), "if input is newer, rebuild expected");
                 }
             },
-            (Dirtiness::Modified(a), _) => { assert!(maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").is_command(), "should rebuild"); },
+            (Dirtiness::Modified(_a), _) => { assert!(maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").is_command(), "should rebuild"); },
             (Dirtiness::DoesNotExist, _) => { maybe_task.expect_err("missing input"); },
             (Dirtiness::Dirty, _) => { assert!(maybe_task.expect("not an error").is_command(), "if input is dirty, need to rebuild"); },
             (Dirtiness::Clean, _) => { panic!("Should never happen"); },

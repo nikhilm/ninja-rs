@@ -16,7 +16,7 @@
 
 use insta::{assert_debug_snapshot, assert_display_snapshot};
 use ninja_parse::{build_representation, Loader};
-use std::{ffi::OsStr, fs, os::unix::ffi::OsStrExt, path::Path};
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 
 /* This bit is a copy of the glob_exec function in insta until insta#119 is fixed*/
 

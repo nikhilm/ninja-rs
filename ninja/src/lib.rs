@@ -18,7 +18,7 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{
-    build, build_externals, default_mtimestate, task::description_to_tasks, BuildError,
+    build, build_externals, default_mtimestate, task::description_to_tasks,
     MTimeRebuilder, ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
