@@ -257,9 +257,12 @@ pub fn build_representation(
 mod test {
 
     use super::{ast as past, ParseState, ProcessingError};
+    use crate::env::Env;
+    use insta::assert_debug_snapshot;
+    use std::{cell::RefCell, rc::Rc};
 
     macro_rules! lit {
-        ($name:literal) => {
+        ($name:expr) => {
             past::Term::Literal($name.to_vec())
         };
     }
@@ -299,144 +302,145 @@ mod test {
         assert!(matches!(err, ProcessingError::DuplicateRule(_)));
     }
 
-    /*
     #[test]
     fn err_duplicate_rule() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![
-                rule!("link", "link.exe"),
-                rule!("compile", "compile.exe"),
-                rule!("link", "link.exe"),
-            ],
-            builds: vec![],
-        };
-        let err = to_description(desc).unwrap_err();
+        let mut parse_state = ParseState::default();
+        let _ = parse_state.add_rule(rule!["link"]).unwrap();
+        let _ = parse_state.add_rule(rule!["compile"]).unwrap();
+        let err = parse_state.add_rule(rule!["link"]).expect_err("duplicate");
         assert!(matches!(err, ProcessingError::DuplicateRule(_)));
     }
 
     #[test]
     fn duplicate_output() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![],
-            builds: vec![
+        let mut parse_state = ParseState::default();
+        let env = Rc::new(RefCell::new(Env::default()));
+        let _ = parse_state
+            .add_build_edge(
                 past::Build {
-                    rule: b"phony",
-                    inputs: vec![],
+                    rule: b"phony".to_vec(),
                     outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
+                    ..Default::default()
                 },
+                env.clone(),
+            )
+            .unwrap();
+        let err = parse_state
+            .add_build_edge(
                 past::Build {
-                    rule: b"phony",
-                    inputs: vec![],
+                    rule: b"phony".to_vec(),
                     outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
+                    ..Default::default()
                 },
-            ],
-        };
-        assert!(matches!(
-            to_description(desc).unwrap_err(),
-            ProcessingError::DuplicateOutput(_)
-        ));
+                env.clone(),
+            )
+            .expect_err("duplicate output");
+        assert!(matches!(err, ProcessingError::DuplicateOutput(_)));
     }
 
     #[test]
     fn duplicate_output2() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![],
-            builds: vec![
+        let mut parse_state = ParseState::default();
+        let env = Rc::new(RefCell::new(Env::default()));
+        let _ = parse_state
+            .add_build_edge(
                 past::Build {
-                    rule: b"phony",
-                    inputs: vec![],
+                    rule: b"phony".to_vec(),
                     outputs: vec![
                         past::Expr(vec![lit!(b"b.txt")]),
                         past::Expr(vec![lit!(b"a.txt")]),
                     ],
+                    ..Default::default()
                 },
+                env.clone(),
+            )
+            .unwrap();
+        let err = parse_state
+            .add_build_edge(
                 past::Build {
-                    rule: b"phony",
-                    inputs: vec![],
+                    rule: b"phony".to_vec(),
                     outputs: vec![
                         past::Expr(vec![lit!(b"a.txt")]),
                         past::Expr(vec![lit!(b"c.txt")]),
                     ],
+                    ..Default::default()
                 },
-            ],
-        };
-        assert!(matches!(
-            to_description(desc).unwrap_err(),
-            ProcessingError::DuplicateOutput(_)
-        ));
+                env.clone(),
+            )
+            .expect_err("duplicate output");
+        assert!(matches!(err, ProcessingError::DuplicateOutput(_)));
     }
 
     #[test]
     fn unknown_rule() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![],
-            builds: vec![past::Build {
-                rule: b"baloney",
-                inputs: vec![],
-                outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
-            }],
-        };
-        assert!(matches!(
-            to_description(desc).unwrap_err(),
-            ProcessingError::UnknownRule(_)
-        ));
+        let mut parse_state = ParseState::default();
+        let env = Rc::new(RefCell::new(Env::default()));
+        let err = parse_state
+            .add_build_edge(
+                past::Build {
+                    rule: b"baloney".to_vec(),
+                    ..Default::default()
+                },
+                env,
+            )
+            .expect_err("unknown rule");
+        assert!(matches!(err, ProcessingError::UnknownRule(_)));
     }
 
     #[test]
     fn success() {
-        let desc = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![
-                rule!["link", "link.exe"],
-                rule!["cc", "clang"],
-                rule!["unused"],
-            ],
-            builds: vec![
-                past::Build {
-                    rule: b"phony",
-                    inputs: vec![past::Expr(vec![lit!(b"source.txt")])],
-                    outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
-                },
-                past::Build {
-                    rule: b"cc",
-                    inputs: vec![
-                        past::Expr(vec![lit!(b"hello.c")]),
-                        past::Expr(vec![lit!(b"hello.h")]),
-                    ],
-                    outputs: vec![past::Expr(vec![lit!(b"hello.o")])],
-                },
-                past::Build {
-                    rule: b"link",
-                    inputs: vec![
-                        past::Expr(vec![lit!(b"hello.o")]),
-                        past::Expr(vec![lit!(b"my_shared_lib.so")]),
-                    ],
-                    outputs: vec![past::Expr(vec![lit!(b"hello")])],
-                },
-            ],
-        };
-        let ast = to_description(desc).unwrap();
-        assert_debug_snapshot!(ast);
+        let mut parse_state = ParseState::default();
+        let env = Rc::new(RefCell::new(Env::default()));
+
+        for rule in vec![
+            rule!["link", "link.exe"],
+            rule!["cc", "clang"],
+            rule!["unused"],
+        ] {
+            parse_state.add_rule(rule).unwrap();
+        }
+
+        for build in vec![
+            past::Build {
+                rule: b"phony".to_vec(),
+                inputs: vec![past::Expr(vec![lit!(b"source.txt")])],
+                outputs: vec![past::Expr(vec![lit!(b"a.txt")])],
+                ..Default::default()
+            },
+            past::Build {
+                rule: b"cc".to_vec(),
+                inputs: vec![
+                    past::Expr(vec![lit!(b"hello.c")]),
+                    past::Expr(vec![lit!(b"hello.h")]),
+                ],
+                outputs: vec![past::Expr(vec![lit!(b"hello.o")])],
+                ..Default::default()
+            },
+            past::Build {
+                rule: b"link".to_vec(),
+                inputs: vec![
+                    past::Expr(vec![lit!(b"hello.o")]),
+                    past::Expr(vec![lit!(b"my_shared_lib.so")]),
+                ],
+                outputs: vec![past::Expr(vec![lit!(b"hello")])],
+                ..Default::default()
+            },
+        ] {
+            parse_state.add_build_edge(build, env.clone()).unwrap();
+        }
+        let repr = parse_state.into_description();
+        assert_debug_snapshot!(repr);
     }
 
     #[test]
     fn in_and_out_basic() {
-        let ast = past::Description {
-            includes: vec![],
-            bindings: Rc::new(RefCell::new(Env::default())),
-            rules: vec![past::Rule {
+        let mut parse_state = ParseState::default();
+        let env = Rc::new(RefCell::new(Env::default()));
+        parse_state
+            .add_rule(past::Rule {
                 name: b"echo".to_vec(),
                 bindings: vec![(
-                    "command".as_bytes(),
+                    b"command".to_vec(),
                     past::Expr(vec![
                         lit!(b"echo "),
                         aref!(b"in"),
@@ -446,21 +450,23 @@ mod test {
                 )]
                 .into_iter()
                 .collect(),
-            }],
-            builds: vec![past::Build {
-                rule: b"echo".to_vec(),
-                inputs: vec![
-                    past::Expr(vec![lit!(b"a.txt")]),
-                    past::Expr(vec![lit!(b"b.txt")]),
-                ],
-                outputs: vec![
-                    past::Expr(vec![lit!(b"c.txt")]),
-                    past::Expr(vec![lit!(b"d.txt")]),
-                ],
-            }],
-        };
-        let ast = to_description(ast).unwrap();
-        assert_debug_snapshot!(ast);
+            })
+            .unwrap();
+        for build in vec![past::Build {
+            rule: b"echo".to_vec(),
+            inputs: vec![
+                past::Expr(vec![lit!(b"a.txt")]),
+                past::Expr(vec![lit!(b"b.txt")]),
+            ],
+            outputs: vec![
+                past::Expr(vec![lit!(b"c.txt")]),
+                past::Expr(vec![lit!(b"d.txt")]),
+            ],
+            ..Default::default()
+        }] {
+            let _ = parse_state.add_build_edge(build, env.clone()).unwrap();
+        }
+        let repr = parse_state.into_description();
+        assert_debug_snapshot!(repr);
     }
-    */
 }

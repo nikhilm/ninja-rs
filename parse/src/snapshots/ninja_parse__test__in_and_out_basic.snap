@@ -1,0 +1,48 @@
+---
+source: parse/src/lib.rs
+expression: repr
+---
+Description {
+    builds: [
+        Build {
+            action: Command(
+                "echo a.txt b.txt makes c.txt d.txt",
+            ),
+            inputs: [
+                [
+                    97,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    98,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+            implicit_inputs: [],
+            order_inputs: [],
+            outputs: [
+                [
+                    99,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+                [
+                    100,
+                    46,
+                    116,
+                    120,
+                    116,
+                ],
+            ],
+        },
+    ],
+    defaults: None,
+}

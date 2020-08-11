@@ -63,7 +63,7 @@ pub struct Rule {
     pub bindings: HashMap<Vec<u8>, Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Build {
     pub rule: Vec<u8>,
     // These will become structs once we discriminate inputs and outputs.
