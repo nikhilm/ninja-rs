@@ -15,6 +15,7 @@
  */
 
 use std::{collections::HashMap, fmt::Display, os::unix::process::ExitStatusExt, process::Output};
+use std::os::unix::ffi::OsStrExt;
 
 use async_trait::async_trait;
 use thiserror::Error;
@@ -37,15 +38,25 @@ pub type CommandTaskResult = Result<Output, CommandTaskError>;
 
 #[derive(Debug)]
 pub struct CommandTask {
+    key: Key,
     command: String,
 }
 
 impl CommandTask {
-    pub fn new(command: String) -> CommandTask {
-        CommandTask { command }
+    pub fn new(key: Key, command: String) -> CommandTask {
+        CommandTask { key, command }
     }
 
     pub async fn run_command(&self) -> CommandTaskResult {
+        // Create directories for all outputs.
+        for output in self.key.iter() {
+            if let Some(dir) = std::path::Path::new(std::ffi::OsStr::from_bytes(output)).parent() {
+                if !dir.exists() {
+                    std::fs::create_dir_all(dir)?;
+                }
+            }
+        }
+
         let output = Command::new("/bin/sh")
             .arg("-c")
             .arg(&self.command)
@@ -104,6 +115,14 @@ impl Key {
         match *self {
             Key::Single(ref bytes) => bytes,
             _ => panic!("only works on Key::Single"),
+        }
+    }
+
+    pub fn iter(&self) ->  impl Iterator<Item = &[u8]> + '_ {
+        match self {
+            Key::Single(v) => { std::iter::once(v.as_slice()) },
+            Key::Multi(_) => { panic!() },
+            //Key::Multi(vs) => { Box::new( vs.iter().map(|v| v.iter()).flatten() )},
         }
     }
 }

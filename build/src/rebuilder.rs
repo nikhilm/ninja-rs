@@ -331,7 +331,7 @@ where
             true
         };
 
-        self.mtime_state.mark_dirty(key, dirty);
+        self.mtime_state.mark_dirty(key.clone(), dirty);
 
         if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
@@ -339,7 +339,10 @@ where
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Ok(Box::new(CommandTask::new(task.command().unwrap().clone())))
+            Ok(Box::new(CommandTask::new(
+                key,
+                task.command().unwrap().clone(),
+            )))
         } else {
             Ok(Box::new(NoopTask::default()))
         }
