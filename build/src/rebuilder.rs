@@ -203,13 +203,14 @@ where
     State: MTimeStateI,
 {
     type Error = RebuilderError;
+    type Task = dyn BuildTask<TaskResult>;
 
     fn build(
         &self,
         key: Key,
         _unused: Option<TaskResult>,
         task: &Task,
-    ) -> Result<Box<dyn BuildTask<TaskResult>>, Self::Error> {
+    ) -> Result<Box<Self::Task>, Self::Error> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
 

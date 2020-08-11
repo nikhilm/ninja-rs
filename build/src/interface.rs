@@ -36,13 +36,14 @@ impl<V> Debug for dyn BuildTask<V> {
 }
 
 pub trait Rebuilder<K, V> {
+    type Task: BuildTask<V> + ?Sized;
     type Error: std::error::Error + Send + Sync + 'static;
     fn build(
         &self,
         key: K,
         current_value: Option<V>,
         task: &Task,
-    ) -> Result<Box<dyn BuildTask<V>>, Self::Error>;
+    ) -> Result<Box<Self::Task>, Self::Error>;
 }
 
 pub trait Scheduler<K, V> {

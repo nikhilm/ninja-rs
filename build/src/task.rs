@@ -49,6 +49,7 @@ impl CommandTask {
 
     pub async fn run_command(&self) -> CommandTaskResult {
         // Create directories for all outputs.
+        // TODO: Somehow hide this behind a disk interface or something so we can mock it.
         for output in self.key.iter() {
             if let Some(dir) = std::path::Path::new(std::ffi::OsStr::from_bytes(output)).parent() {
                 if !dir.exists() {

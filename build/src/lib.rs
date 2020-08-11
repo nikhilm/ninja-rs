@@ -31,6 +31,7 @@ mod interface;
 mod rebuilder;
 pub mod task;
 use task::{Key, Task, Tasks};
+use interface::BuildTask;
 
 #[cfg(test)]
 mod property_tests;
