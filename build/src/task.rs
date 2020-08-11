@@ -238,10 +238,16 @@ fn syms_to_key(mut outputs: Vec<Vec<u8>>) -> Key {
     Key::Multi(outputs.iter().map(|o| sym_to_key(o.clone())).collect())
 }
 
-pub fn description_to_tasks(desc: Description) -> (Tasks, Option<Vec<Key>>) {
-    let requested = desc
-        .defaults
-        .map(|v| v.into_iter().map(sym_to_key).collect());
+pub fn description_to_tasks_with_start(
+    desc: Description,
+    start: Option<Vec<Vec<u8>>>,
+) -> (Tasks, Option<Vec<Key>>) {
+    let requested = if let Some(specified) = start {
+        Some(specified.into_iter().map(sym_to_key).collect())
+    } else {
+        desc.defaults
+            .map(|v| v.into_iter().map(sym_to_key).collect())
+    };
     let mut map: TasksMap = HashMap::new();
     // Since no two build edges can produce any single output, they also cannot produce any
     // multi-outputs. This means every build's outputs are guaranteed to be unique and we may as
@@ -286,6 +292,10 @@ pub fn description_to_tasks(desc: Description) -> (Tasks, Option<Vec<Key>>) {
     }
 
     (Tasks { map }, requested)
+}
+
+pub fn description_to_tasks(desc: Description) -> (Tasks, Option<Vec<Key>>) {
+    description_to_tasks_with_start(desc, None)
 }
 
 #[cfg(test)]

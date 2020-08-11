@@ -74,7 +74,10 @@ impl Default for Printer {
 
 impl Printer {
     fn print_status(&mut self, task: &Task) {
-        let command = task.command().expect("only command tasks");
+        if !task.is_command() {
+            return;
+        }
+        let command = task.command().unwrap();
 
         if self.console.is_term() {
             self.console.clear_line().expect("clear");
@@ -124,6 +127,7 @@ impl Printer {
                     self.console.write(&out.stderr).unwrap();
                 }
             }
+            panic!("FAILED");
         }
     }
 }

@@ -18,7 +18,8 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{
-    build, build_externals, default_mtimestate, task::description_to_tasks,
+    build, build_externals, default_mtimestate,
+    task::{description_to_tasks, description_to_tasks_with_start},
     MTimeRebuilder, ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
@@ -55,6 +56,7 @@ pub struct Config {
     pub parallelism: usize,
     pub build_file: String,
     pub debug_modes: Vec<DebugMode>,
+    pub targets: Vec<String>,
 }
 
 struct FileLoader {}
@@ -96,7 +98,14 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // don't spit out executable tasks, instead just having an enum.
     let (tasks, requested) = {
         scoped_metric!("to_tasks");
-        description_to_tasks(repr)
+        if config.targets.is_empty() {
+            description_to_tasks(repr)
+        } else {
+            description_to_tasks_with_start(
+                repr,
+                Some(config.targets.into_iter().map(|v| v.into_bytes()).collect()),
+            )
+        }
     };
 
     // BTW, one way to model cheap string/byte references by index without having to pass lifetimes

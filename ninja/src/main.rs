@@ -77,8 +77,8 @@ fn main() -> anyhow::Result<()> {
             .opt_value_from_str("-f")?
             .unwrap_or("build.ninja".to_owned()),
         debug_modes: read_debug_modes(&mut args)?,
+        targets: args.free()?,
     };
-    args.finish()?;
 
     run(config)
 }
