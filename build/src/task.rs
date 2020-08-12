@@ -36,6 +36,13 @@ pub enum CommandTaskError {
 
 pub type CommandTaskResult = Result<Output, CommandTaskError>;
 
+pub trait CmdTask: BuildTask<TaskResult> + std::fmt::Debug {
+    #[cfg(test)]
+    fn is_command(&self) -> bool {
+        false
+    }
+}
+
 #[derive(Debug)]
 pub struct CommandTask {
     key: Key,
@@ -75,7 +82,9 @@ impl BuildTask<TaskResult> for CommandTask {
     async fn run(&self) -> TaskResult {
         self.run_command().await
     }
+}
 
+impl CmdTask for CommandTask {
     #[cfg(test)]
     fn is_command(&self) -> bool {
         true
@@ -96,6 +105,8 @@ impl BuildTask<TaskResult> for NoopTask {
         .await
     }
 }
+
+impl CmdTask for NoopTask {}
 
 #[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]
 pub enum Key {

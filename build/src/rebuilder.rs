@@ -31,7 +31,7 @@ use std::os::unix::ffi::OsStrExt;
 use crate::{
     disk_interface::DiskInterface,
     interface::{BuildTask, Rebuilder},
-    task::{CommandTask, NoopTask},
+    task::{CmdTask, CommandTask, NoopTask},
 };
 
 /**
@@ -203,7 +203,7 @@ where
     State: MTimeStateI,
 {
     type Error = RebuilderError;
-    type Task = dyn BuildTask<TaskResult>;
+    type Task = dyn CmdTask;
 
     fn build(
         &self,

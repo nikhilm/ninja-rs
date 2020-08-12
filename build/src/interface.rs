@@ -22,11 +22,6 @@ use core::fmt::Debug;
 pub trait BuildTask<V> {
     // Cannot pass state until we have structured concurrency.
     async fn run(&self) -> V;
-
-    #[cfg(test)]
-    fn is_command(&self) -> bool {
-        false
-    }
 }
 
 impl<V> Debug for dyn BuildTask<V> {
