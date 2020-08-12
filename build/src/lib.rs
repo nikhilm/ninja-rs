@@ -30,15 +30,15 @@ pub mod disk_interface;
 mod interface;
 mod rebuilder;
 pub mod task;
-use task::{Key, Task, Tasks};
 use interface::BuildTask;
+use task::{Key, Task, Tasks};
 
 #[cfg(test)]
 mod property_tests;
 
 use disk_interface::SystemDiskInterface;
 pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
-use task::{CommandTaskError, CommandTaskResult};
+use task::{CommandTaskError, CommandTaskResult, TasksMap};
 
 // Needs to be public for some weird reason.
 // This genericity is getting very wonky.
@@ -89,7 +89,9 @@ impl Printer {
                 self.console,
                 "[{}/{}] {}",
                 // TODO: Properly calculate instead of just removing 10 chars.
-                self.finished, self.total, &command[..((size as usize)-10)]
+                self.finished,
+                self.total,
+                &command[..((size as usize) - 10)]
             )
             .expect("write");
         } else {
@@ -246,7 +248,7 @@ impl ParallelTopoScheduler {
         ParallelTopoScheduler { parallelism }
     }
 
-    fn build_graph(tasks: &Tasks) -> SchedulerGraph {
+    fn build_graph(tasks: &Tasks, start: Option<Vec<Key>>) -> SchedulerGraph {
         let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
         let mut graph = SchedulerGraph::new();
         fn add_or_get_node<'a>(
@@ -263,11 +265,34 @@ impl ParallelTopoScheduler {
                 Entry::Occupied(e) => *e.get(),
             }
         }
-        for (key, task) in tasks.all_tasks() {
-            let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
-            for dep in task.dependencies().iter().chain(task.order_dependencies()) {
-                let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
-                graph.add_edge(source, dep_node, ());
+
+        let task_map = tasks.all_tasks();
+
+        if let Some(start) = start {
+            // The borrow checker has a problem with recursion, so bring out the BFS.
+            let mut queue = std::collections::VecDeque::from(start);
+            let mut visited = HashSet::new();
+            while !queue.is_empty() {
+                let key = queue.pop_front().unwrap();
+                if let Some((key, task)) = task_map.get_key_value(&key) {
+                    let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
+                    if !visited.contains(&source) {
+                        visited.insert(source);
+                        for dep in task.dependencies().iter().chain(task.order_dependencies()) {
+                            let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
+                            graph.add_edge(source, dep_node, ());
+                            queue.push_back(dep.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            for (key, task) in task_map {
+                let source = add_or_get_node(&mut keys_to_nodes, &mut graph, key);
+                for dep in task.dependencies().iter().chain(task.order_dependencies()) {
+                    let dep_node = add_or_get_node(&mut keys_to_nodes, &mut graph, dep);
+                    graph.add_edge(source, dep_node, ());
+                }
             }
         }
         graph
@@ -279,7 +304,11 @@ impl ParallelTopoScheduler {
         tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) -> Result<(), BuildError> {
-        let graph = Self::build_graph(&tasks);
+        // Umm.. OK So if the user did not request a particular start, and there are no defaults,
+        // then we need to first build a graph and then find the externals.
+        // But if there is a start, could we build a graph that has only reachable nodes, and also
+        // get our topo sort at the same time?
+        let graph = Self::build_graph(&tasks, start.clone());
         let mut build_state = BuildState::default();
         let mut printer = Printer::default();
 

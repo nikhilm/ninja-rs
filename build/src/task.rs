@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
-use std::{collections::HashMap, fmt::Display, os::unix::process::ExitStatusExt, process::Output};
-use std::os::unix::ffi::OsStrExt;
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    os::unix::{ffi::OsStrExt, process::ExitStatusExt},
+    process::Output,
+};
 
 use async_trait::async_trait;
 use thiserror::Error;
@@ -130,10 +134,10 @@ impl Key {
         }
     }
 
-    pub fn iter(&self) ->  impl Iterator<Item = &[u8]> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
         match self {
-            Key::Single(v) => { std::iter::once(v.as_slice()) },
-            Key::Multi(_) => { panic!() },
+            Key::Single(v) => std::iter::once(v.as_slice()),
+            Key::Multi(_) => panic!(),
             //Key::Multi(vs) => { Box::new( vs.iter().map(|v| v.iter()).flatten() )},
         }
     }
