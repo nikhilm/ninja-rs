@@ -59,13 +59,13 @@ proptest! {
         let mut mtimes = HashMap::new();
         dbg!(mtime_a);
         dbg!(mtime_b);
-        mtimes.insert(Key::Single(b"foo.c".to_vec()), mtime_a);
-        mtimes.insert(Key::Single(b"foo".to_vec()), mtime_b);
+        mtimes.insert(Key::Path(b"foo.c".to_vec().into()), mtime_a);
+        mtimes.insert(Key::Path(b"foo".to_vec().into()), mtime_b);
         let state = MapMTimeState { map: RefCell::new(mtimes) };
         let rebuilder = CachingMTimeRebuilder::new(state);
         let maybe_task =
-        rebuilder.build(Key::Single(b"foo".to_vec()), None, &Task {
-            dependencies: vec![Key::Single(b"foo.c".to_vec())],
+        rebuilder.build(Key::Path(b"foo".to_vec().into()), None, &Task {
+            dependencies: vec![Key::Path(b"foo.c".to_vec().into())],
                             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         });

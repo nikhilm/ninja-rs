@@ -19,7 +19,8 @@ use thiserror::Error;
 
 use ninja_build::{
     build, build_externals, caching_mtime_rebuilder,
-    task::{description_to_tasks, description_to_tasks_with_start}, ParallelTopoScheduler,
+    task::{description_to_tasks, description_to_tasks_with_start, Key},
+    ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
 use ninja_parse::{build_representation, Loader};
@@ -124,7 +125,12 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     {
         scoped_metric!("build");
         if let Some(requested) = requested {
-            build(scheduler, &rebuilder, &tasks, requested)?;
+            build(
+                scheduler,
+                &rebuilder,
+                &tasks,
+                requested.into_iter().map(Key::Path).collect(),
+            )?;
         } else {
             build_externals(scheduler, &rebuilder, &tasks)?;
         }

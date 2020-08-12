@@ -14,35 +14,80 @@
  * limitations under the License.
  */
 
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, ops::Deref};
 
 use ninja_parse::repr::*;
 
 #[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]
+pub struct KeyPath(Vec<u8>);
+
+impl From<Vec<u8>> for KeyPath {
+    fn from(v: Vec<u8>) -> Self {
+        KeyPath(v)
+    }
+}
+
+impl KeyPath {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+impl Display for KeyPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Path({})",
+            std::str::from_utf8(&self.0).map_err(|_| std::fmt::Error {})?
+        )
+    }
+}
+
+#[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]
+pub struct KeyMulti(Vec<KeyPath>);
+
+impl From<Vec<KeyPath>> for KeyMulti {
+    fn from(v: Vec<KeyPath>) -> Self {
+        KeyMulti(v)
+    }
+}
+
+impl Display for KeyMulti {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Multi(")?;
+        for v in &self.0 {
+            write!(f, "{},", v)?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl Deref for KeyMulti {
+    type Target = [KeyPath];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+#[derive(Debug, PartialOrd, Ord, Hash, Eq, PartialEq, Clone)]
 pub enum Key {
-    Single(Vec<u8>),
-    Multi(Vec<Key>),
+    Path(KeyPath),
+    Multi(KeyMulti),
 }
 
 impl Key {
-    pub fn is_single(&self) -> bool {
-        matches!(self, Key::Single(_))
+    pub fn is_path(&self) -> bool {
+        matches!(self, Key::Path(_))
     }
 
     pub fn is_multi(&self) -> bool {
         matches!(self, Key::Multi(_))
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        match *self {
-            Key::Single(ref bytes) => bytes,
-            _ => panic!("only works on Key::Single"),
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &KeyPath> {
         match self {
-            Key::Single(v) => std::iter::once(v.as_slice()),
+            Key::Path(p) => std::iter::once(p),
             Key::Multi(_) => panic!(),
             //Key::Multi(vs) => { Box::new( vs.iter().map(|v| v.iter()).flatten() )},
         }
@@ -52,18 +97,8 @@ impl Key {
 impl Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Key::Single(v) => write!(
-                f,
-                "Key::Single({})",
-                std::str::from_utf8(v).map_err(|_| std::fmt::Error {})?
-            ),
-            Key::Multi(vs) => {
-                write!(f, "Key::Multi(")?;
-                for v in vs {
-                    write!(f, "{},", v)?;
-                }
-                write!(f, ")")
-            }
+            Key::Path(p) => write!(f, "Key({})", p),
+            Key::Multi(ks) => write!(f, "Key({})", ks),
         }
     }
 }
@@ -130,36 +165,15 @@ impl Tasks {
 
 impl Display for Tasks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let format_single = |key: &Key| -> String {
-            if let Key::Single(ref bytes) = key {
-                std::str::from_utf8(bytes).unwrap().to_string()
-            } else {
-                unreachable!()
-            }
-        };
-
-        let write_key = |f: &mut std::fmt::Formatter<'_>, key: &Key| -> std::fmt::Result {
-            match key {
-                Key::Single(_) => write!(f, "{}", format_single(key)),
-                Key::Multi(ref syms) => write!(
-                    f,
-                    "Multi{:?}",
-                    syms.iter().map(format_single).collect::<Vec<String>>()
-                ),
-            }
-        };
-
         write!(f, "Tasks{{\n tasks:\n")?;
         let mut keys: Vec<&Key> = self.map.keys().collect();
         keys.sort();
         for key in keys {
             let task = &self.map[key];
-            write!(f, "  ")?;
-            write_key(f, key)?;
+            write!(f, "  {}", key)?;
             write!(f, " -> {:?} [", task.variant)?;
             for key in task.dependencies() {
-                write_key(f, key)?;
-                write!(f, ", ")?;
+                write!(f, "{}, ", key)?;
             }
             writeln!(f, "]")?;
         }
@@ -167,27 +181,27 @@ impl Display for Tasks {
     }
 }
 
-fn sym_to_key(output: Vec<u8>) -> Key {
-    Key::Single(output)
+fn path_to_key(path: Vec<u8>) -> KeyPath {
+    KeyPath(path)
 }
 
-fn syms_to_key(mut outputs: Vec<Vec<u8>>) -> Key {
+fn paths_to_multi_key(mut outputs: Vec<Vec<u8>>) -> KeyMulti {
     assert!(outputs.len() > 1);
     // TODO: This isn't perfect because we want to show any errors to the user in the order in
     // which they originally wrote the build rule, and not what we determine to be the order.
     outputs.sort();
-    Key::Multi(outputs.iter().map(|o| sym_to_key(o.clone())).collect())
+    KeyMulti(outputs.iter().map(|o| path_to_key(o.clone())).collect())
 }
 
 pub fn description_to_tasks_with_start(
     desc: Description,
     start: Option<Vec<Vec<u8>>>,
-) -> (Tasks, Option<Vec<Key>>) {
+) -> (Tasks, Option<Vec<KeyPath>>) {
     let requested = if let Some(specified) = start {
-        Some(specified.into_iter().map(sym_to_key).collect())
+        Some(specified.into_iter().map(path_to_key).collect())
     } else {
         desc.defaults
-            .map(|v| v.into_iter().map(sym_to_key).collect())
+            .map(|v| v.into_iter().map(path_to_key).collect())
     };
     let mut map: TasksMap = HashMap::new();
     // Since no two build edges can produce any single output, they also cannot produce any
@@ -195,24 +209,20 @@ pub fn description_to_tasks_with_start(
     // well create a new key for each.
     for build in desc.builds {
         let key = if build.outputs.len() == 1 {
-            sym_to_key((&build.outputs[0]).clone())
+            Key::Path(path_to_key((&build.outputs[0]).clone()))
         } else {
-            let main_key = syms_to_key(build.outputs);
-            if let Key::Multi(ref keys) = main_key {
-                for key in keys {
-                    map.insert(
-                        key.clone(),
-                        Task {
-                            dependencies: vec![main_key.clone()],
-                            order_dependencies: vec![],
-                            variant: TaskVariant::Retrieve,
-                        },
-                    );
-                }
-            } else {
-                unreachable!();
+            let main_key = paths_to_multi_key(build.outputs);
+            for key in main_key.deref() {
+                map.insert(
+                    Key::Path(key.clone()),
+                    Task {
+                        dependencies: vec![Key::Multi(main_key.clone())],
+                        order_dependencies: vec![],
+                        variant: TaskVariant::Retrieve,
+                    },
+                );
             }
-            main_key
+            Key::Multi(main_key)
         };
         map.insert(
             key.clone(),
@@ -220,10 +230,22 @@ pub fn description_to_tasks_with_start(
                 dependencies: build
                     .inputs
                     .into_iter()
-                    .map(sym_to_key)
-                    .chain(build.implicit_inputs.into_iter().map(sym_to_key))
+                    .map(path_to_key)
+                    .map(Key::Path)
+                    .chain(
+                        build
+                            .implicit_inputs
+                            .into_iter()
+                            .map(path_to_key)
+                            .map(Key::Path),
+                    )
                     .collect(),
-                order_dependencies: build.order_inputs.into_iter().map(sym_to_key).collect(),
+                order_dependencies: build
+                    .order_inputs
+                    .into_iter()
+                    .map(path_to_key)
+                    .map(Key::Path)
+                    .collect(),
                 variant: match build.action {
                     Action::Phony => TaskVariant::Retrieve,
                     Action::Command(s) => TaskVariant::Command(s),
@@ -235,7 +257,7 @@ pub fn description_to_tasks_with_start(
     (Tasks { map }, requested)
 }
 
-pub fn description_to_tasks(desc: Description) -> (Tasks, Option<Vec<Key>>) {
+pub fn description_to_tasks(desc: Description) -> (Tasks, Option<Vec<KeyPath>>) {
     description_to_tasks_with_start(desc, None)
 }
 
@@ -245,37 +267,28 @@ mod test {
 
     #[test]
     #[should_panic]
-    fn test_fail_as_bytes_on_multi() {
-        Key::Multi(vec![]).as_bytes();
+    fn test_paths_to_multi_key_1() {
+        paths_to_multi_key(vec![b"a".to_vec()]);
     }
 
     #[test]
-    #[should_panic]
-    fn test_syms_to_key_1() {
-        syms_to_key(vec![b"a".to_vec()]);
-    }
-
-    #[test]
-    fn test_syms_to_key_at_least_2() {
-        syms_to_key(vec![b"a".to_vec(), b"b".to_vec()]);
+    fn test_paths_to_multi_key_at_least_2() {
+        paths_to_multi_key(vec![b"a".to_vec(), b"b".to_vec()]);
     }
 
     #[test]
     fn test_sort() {
-        let key = syms_to_key(vec![
+        let key = paths_to_multi_key(vec![
             b"hello".to_vec(),
             b"grungy".to_vec(),
             b"aaaaaaaaaaaaaaaa.txt".to_vec(),
         ]);
-        if let Key::Multi(keys) = key {
-            let mut iter = keys.iter().peekable();
-            while let Some(elem) = iter.next() {
-                if let Some(next) = iter.peek() {
-                    assert!(elem <= next);
-                }
+
+        let mut iter = key.iter().peekable();
+        while let Some(elem) = iter.next() {
+            if let Some(next) = iter.peek() {
+                assert!(elem <= next);
             }
-        } else {
-            panic!("Expected multi");
         }
     }
 
@@ -302,18 +315,18 @@ mod test {
             if let Key::Multi(keys) = key {
                 found_multi = true;
                 assert_eq!(
-                    keys,
-                    &vec![
-                        Key::Single(b"output2.txt".to_vec()),
-                        Key::Single(b"output9.txt".to_vec())
+                    keys.0,
+                    vec![
+                        KeyPath(b"output2.txt".to_vec()),
+                        KeyPath(b"output9.txt".to_vec())
                     ]
                 );
                 let task = tasks.task(key).expect("valid task");
                 assert!(task.is_command());
                 assert!(task.dependencies().is_empty());
-            } else if let Key::Single(path) = key {
+            } else if let Key::Path(path) = key {
                 single_count += 1;
-                assert!((path == &b"output2.txt".to_vec() || path == &b"output9.txt".to_vec()));
+                assert!((path.as_bytes() == b"output2.txt" || path.as_bytes() == b"output9.txt"));
 
                 let task = tasks.task(key).expect("valid task");
                 assert!(task.is_retrieve());
@@ -342,7 +355,7 @@ mod test {
         let (tasks, _) = description_to_tasks(desc);
         assert_eq!(tasks.all_tasks().len(), 1);
         let task = tasks
-            .task(&Key::Single(b"z.txt".to_vec()))
+            .task(&Key::Path(KeyPath(b"z.txt".to_vec())))
             .expect("valid task");
         assert!(task.is_command());
         assert_eq!(task.dependencies().len(), 4);
@@ -364,7 +377,7 @@ mod test {
         let (tasks, _) = description_to_tasks(desc);
         assert_eq!(tasks.all_tasks().len(), 1);
         let task = tasks
-            .task(&Key::Single(b"z.txt".to_vec()))
+            .task(&Key::Path(KeyPath(b"z.txt".to_vec())))
             .expect("valid task");
         assert!(task.is_command());
         assert_eq!(task.dependencies().len(), 2);

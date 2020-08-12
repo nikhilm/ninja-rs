@@ -133,23 +133,27 @@ where
     fn dirtiness(&self, key: Key) -> std::io::Result<Dirtiness> {
         match self.dirty.borrow_mut().entry(key.clone()) {
             Entry::Occupied(e) => Ok(*e.get()),
-            Entry::Vacant(entry) => {
-                assert!(key.is_single());
-                scoped_metric!("mtime_state_insert");
-                let inserted = entry.insert(
-                    self.disk
-                        .modified(OsStr::from_bytes(key.as_bytes()))
-                        .map(Dirtiness::Modified)
-                        .or_else(|e| {
-                            if e.kind() == std::io::ErrorKind::NotFound {
-                                Ok(Dirtiness::DoesNotExist)
-                            } else {
-                                Err(e)
-                            }
-                        })?,
-                );
-                Ok(*inserted)
-            }
+            Entry::Vacant(entry) => match key {
+                Key::Path(key) => {
+                    scoped_metric!("mtime_state_insert");
+                    let inserted = entry.insert(
+                        self.disk
+                            .modified(OsStr::from_bytes(key.as_bytes()))
+                            .map(Dirtiness::Modified)
+                            .or_else(|e| {
+                                if e.kind() == std::io::ErrorKind::NotFound {
+                                    Ok(Dirtiness::DoesNotExist)
+                                } else {
+                                    Err(e)
+                                }
+                            })?,
+                    );
+                    Ok(*inserted)
+                }
+                Key::Multi(_) => {
+                    panic!("Cannot mtime a multi-key. Did you forget to mark it as dirty to ensure it is in the cache?");
+                }
+            },
         }
     }
 
@@ -210,13 +214,10 @@ where
         _unused: Option<CommandTaskResult>,
         task: &Task,
     ) -> Result<Box<Self::Task>, Self::Error> {
-        // This function obviously needs a lot of error handling.
-        // Only returns the command task if required, otherwise a dummy.
-
         let outputs_dirty: Dirtiness = match key.clone() {
-            Key::Single(_) => self.mtime_state.dirtiness(key.clone())?,
+            Key::Path(_) => self.mtime_state.dirtiness(key.clone())?,
             Key::Multi(keys) => {
-                assert!(keys.len() > 1);
+                debug_assert!(keys.len() > 1);
                 // Non-empty multi-keys really should be asserted elsewhere.
                 // We actually want something like sorbet's "values have assertable conditions in
                 // debug mode".
@@ -224,7 +225,8 @@ where
                     .try_fold(
                         None,
                         |so_far, current_key| -> Result<Option<Dirtiness>, RebuilderError> {
-                            let dirty = self.mtime_state.dirtiness(current_key.clone())?;
+                            let dirty =
+                                self.mtime_state.dirtiness(Key::Path(current_key.clone()))?;
                             match so_far {
                                 None => Ok(Some(dirty)),
                                 Some(so_far) => Ok(Some(match (so_far, dirty) {
@@ -254,7 +256,7 @@ where
         } else {
             // TODO if debug.
             for dep in dependencies {
-                assert!(dep.is_single());
+                assert!(dep.is_path());
             }
             // We could use iter.any, but that will short circuit and not check every file for
             // existence.
@@ -262,17 +264,17 @@ where
                 None,
                 |so_far, current_dep| -> Result<Option<Dirtiness>, RebuilderError> {
                     match current_dep {
-                        Key::Single(ref dep_bytes) => {
+                        Key::Path(key_path) => {
                             let dep_mtime = self.mtime_state.dirtiness(current_dep.clone())?;
                             if dep_mtime == Dirtiness::DoesNotExist {
                                 let output = match key.clone() {
-                                    Key::Single(_) => String::from_utf8(key.as_bytes().to_vec())?,
+                                    Key::Path(key) => String::from_utf8(key.as_bytes().to_vec())?,
                                     Key::Multi(keys) => {
                                         String::from_utf8(keys[0].as_bytes().to_vec())?
                                     }
                                 };
                                 Err(RebuilderError::MissingInput {
-                                    input: String::from_utf8(dep_bytes.clone().to_vec())?,
+                                    input: String::from_utf8(key_path.as_bytes().to_vec())?,
                                     output,
                                 })
                             } else {
@@ -392,12 +394,12 @@ mod test {
                 }
         };
         let task = Task {
-            dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            dependencies: vec![Key::Path(b"foo.c".to_vec().into())],
             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         let task = rebuilder
-            .build(Key::Single(b"foo.o".to_vec()), None, &task)
+            .build(Key::Path(b"foo.o".to_vec().into()), None, &task)
             .expect("valid task");
         assert!(task.is_command());
     }
@@ -417,10 +419,12 @@ mod test {
         // marking the mtimestate with some marker when the output did not exist. essentially a
         // "dirtiness" state instead of a mtimestate.
         let task = rebuilder.build(
-            Key::Single(b"phony_user".to_vec()),
+            Key::Path(b"phony_user".to_vec().into()),
             None,
             &Task {
-                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                dependencies: vec![Key::Path(
+                    b"phony_target_that_does_not_exist".to_vec().into(),
+                )],
                 order_dependencies: vec![],
                 variant: TaskVariant::Retrieve,
             },
@@ -434,10 +438,12 @@ mod test {
         }
 
         let task = rebuilder.build(
-            Key::Single(b"phony_user".to_vec()),
+            Key::Path(b"phony_user".to_vec().into()),
             None,
             &Task {
-                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                dependencies: vec![Key::Path(
+                    b"phony_target_that_does_not_exist".to_vec().into(),
+                )],
                 order_dependencies: vec![],
                 variant: TaskVariant::Command("whatever".to_string()),
             },
@@ -457,15 +463,20 @@ mod test {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
         };
         let task = Task {
-            dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+            dependencies: vec![Key::Path(
+                b"phony_target_that_does_not_exist".to_vec().into(),
+            )],
             order_dependencies: vec![],
             variant: TaskVariant::Retrieve,
         };
         let task = rebuilder.build(
-            Key::Multi(vec![
-                Key::Single(b"phony_user".to_vec()),
-                Key::Single(b"phony_user2".to_vec()),
-            ]),
+            Key::Multi(
+                vec![
+                    b"phony_user".to_vec().into(),
+                    b"phony_user2".to_vec().into(),
+                ]
+                .into(),
+            ),
             None,
             &task,
         );
@@ -485,7 +496,7 @@ mod test {
                 Err(Error::new(ErrorKind::NotFound, "mock not found"))
         };
         let task = rebuilder.build(
-            Key::Single(b"phony_target_that_does_not_exist".to_vec()),
+            Key::Path(b"phony_target_that_does_not_exist".to_vec().into()),
             None,
             &Task {
                 dependencies: vec![],
@@ -498,10 +509,12 @@ mod test {
         // Since the above marked the output as phony/dirty, this one should not fail because the
         // cache should treat it as dirty.
         let task = rebuilder.build(
-            Key::Single(b"phony_user".to_vec()),
+            Key::Path(b"phony_user".to_vec().into()),
             None,
             &Task {
-                dependencies: vec![Key::Single(b"phony_target_that_does_not_exist".to_vec())],
+                dependencies: vec![Key::Path(
+                    b"phony_target_that_does_not_exist".to_vec().into(),
+                )],
                 order_dependencies: vec![],
                 variant: TaskVariant::Retrieve,
             },
@@ -538,24 +551,24 @@ mod test {
                 }
         };
         let cc_task = Task {
-            dependencies: vec![Key::Single(b"foo.c".to_vec())],
+            dependencies: vec![Key::Path(b"foo.c".to_vec().into())],
             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
         let link_task = Task {
-            dependencies: vec![Key::Single(b"foo.o".to_vec())],
+            dependencies: vec![Key::Path(b"foo.o".to_vec().into())],
             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -o foo foo.o".to_owned()),
         };
 
         // This would previously end up marking foo.o as Clean in the cache.
         let task = rebuilder
-            .build(Key::Single(b"foo.o".to_vec()), None, &cc_task)
+            .build(Key::Path(b"foo.o".to_vec().into()), None, &cc_task)
             .expect("valid task");
         assert!(!task.is_command(), "foo.o newer than foo.c");
 
         let task = rebuilder
-            .build(Key::Single(b"foo".to_vec()), None, &link_task)
+            .build(Key::Path(b"foo".to_vec().into()), None, &link_task)
             .expect("valid task");
         assert!(task.is_command());
     }
