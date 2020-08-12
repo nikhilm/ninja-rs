@@ -78,14 +78,18 @@ impl Printer {
         if !task.is_command() {
             return;
         }
-        let command = task.command().unwrap();
+        let command = task.command().unwrap().trim();
 
         if self.console.is_term() {
+            // TODO: Handle non-ASCII properly.
+            // TODO: ninja style elision.
+            let size = self.console.size_checked().map(|(w, h)| w).unwrap_or(80);
             self.console.clear_line().expect("clear");
             write!(
                 self.console,
                 "[{}/{}] {}",
-                self.finished, self.total, command
+                // TODO: Properly calculate instead of just removing 10 chars.
+                self.finished, self.total, &command[..((size as usize)-10)]
             )
             .expect("write");
         } else {
