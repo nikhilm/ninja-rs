@@ -14,24 +14,23 @@
  * limitations under the License.
  */
 
-use super::TaskResult;
-use crate::task::{Key, Task};
-use ninja_metrics::scoped_metric;
 use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
     ffi::OsStr,
+    os::unix::ffi::OsStrExt,
     string::FromUtf8Error,
     time::SystemTime,
 };
+
+use ninja_metrics::scoped_metric;
 use thiserror::Error;
 
-use std::os::unix::ffi::OsStrExt;
-
 use crate::{
+    build_task::{CommandTask, CommandTaskResult, NinjaTask, NoopTask},
     disk_interface::DiskInterface,
-    interface::{BuildTask, Rebuilder},
-    task::{CmdTask, CommandTask, NoopTask},
+    interface::Rebuilder,
+    task::{Key, Task},
 };
 
 /**
@@ -100,13 +99,13 @@ pub enum Dirtiness {
     Modified(SystemTime),
 }
 
-pub trait MTimeStateI {
-    fn modified(&self, key: Key) -> std::io::Result<Dirtiness>;
+pub trait DirtyCache {
+    fn dirtiness(&self, key: Key) -> std::io::Result<Dirtiness>;
     fn mark_dirty(&self, key: Key, is_dirty: bool);
 }
 
 #[derive(Debug)]
-pub struct MTimeState<Disk>
+pub struct DiskDirtyCache<Disk>
 where
     Disk: DiskInterface,
 {
@@ -115,23 +114,23 @@ where
     disk: Disk,
 }
 
-impl<Disk> MTimeState<Disk>
+impl<Disk> DiskDirtyCache<Disk>
 where
     Disk: DiskInterface,
 {
     pub fn new(disk: Disk) -> Self {
-        MTimeState {
+        DiskDirtyCache {
             disk,
             dirty: Default::default(),
         }
     }
 }
 
-impl<Disk> MTimeStateI for MTimeState<Disk>
+impl<Disk> DirtyCache for DiskDirtyCache<Disk>
 where
     Disk: DiskInterface,
 {
-    fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
+    fn dirtiness(&self, key: Key) -> std::io::Result<Dirtiness> {
         match self.dirty.borrow_mut().entry(key.clone()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(entry) => {
@@ -172,18 +171,18 @@ where
 }
 
 #[derive(Debug)]
-pub struct MTimeRebuilder<State>
+pub struct CachingMTimeRebuilder<Cache>
 where
-    State: MTimeStateI,
+    Cache: DirtyCache,
 {
-    mtime_state: State,
+    mtime_state: Cache,
 }
 
-impl<State> MTimeRebuilder<State>
+impl<Cache> CachingMTimeRebuilder<Cache>
 where
-    State: MTimeStateI,
+    Cache: DirtyCache,
 {
-    pub fn new(mtime_state: State) -> Self {
+    pub fn new(mtime_state: Cache) -> Self {
         Self { mtime_state }
     }
 }
@@ -198,24 +197,24 @@ pub enum RebuilderError {
     IOError(#[from] std::io::Error),
 }
 
-impl<State> Rebuilder<Key, TaskResult> for MTimeRebuilder<State>
+impl<Cache> Rebuilder<Key, CommandTaskResult> for CachingMTimeRebuilder<Cache>
 where
-    State: MTimeStateI,
+    Cache: DirtyCache,
 {
     type Error = RebuilderError;
-    type Task = dyn CmdTask;
+    type Task = dyn NinjaTask;
 
     fn build(
         &self,
         key: Key,
-        _unused: Option<TaskResult>,
+        _unused: Option<CommandTaskResult>,
         task: &Task,
     ) -> Result<Box<Self::Task>, Self::Error> {
         // This function obviously needs a lot of error handling.
         // Only returns the command task if required, otherwise a dummy.
 
         let outputs_dirty: Dirtiness = match key.clone() {
-            Key::Single(_) => self.mtime_state.modified(key.clone())?,
+            Key::Single(_) => self.mtime_state.dirtiness(key.clone())?,
             Key::Multi(keys) => {
                 assert!(keys.len() > 1);
                 // Non-empty multi-keys really should be asserted elsewhere.
@@ -225,7 +224,7 @@ where
                     .try_fold(
                         None,
                         |so_far, current_key| -> Result<Option<Dirtiness>, RebuilderError> {
-                            let dirty = self.mtime_state.modified(current_key.clone())?;
+                            let dirty = self.mtime_state.dirtiness(current_key.clone())?;
                             match so_far {
                                 None => Ok(Some(dirty)),
                                 Some(so_far) => Ok(Some(match (so_far, dirty) {
@@ -251,7 +250,7 @@ where
         // Dependencies can either be a single Multi key or a list of Singles.
         let inputs_dirty = if dependencies.len() == 1 && matches!(dependencies[0], Key::Multi(_)) {
             assert!(task.is_retrieve());
-            Some(self.mtime_state.modified(dependencies[0].clone())?)
+            Some(self.mtime_state.dirtiness(dependencies[0].clone())?)
         } else {
             // TODO if debug.
             for dep in dependencies {
@@ -264,7 +263,7 @@ where
                 |so_far, current_dep| -> Result<Option<Dirtiness>, RebuilderError> {
                     match current_dep {
                         Key::Single(ref dep_bytes) => {
-                            let dep_mtime = self.mtime_state.modified(current_dep.clone())?;
+                            let dep_mtime = self.mtime_state.dirtiness(current_dep.clone())?;
                             if dep_mtime == Dirtiness::DoesNotExist {
                                 let output = match key.clone() {
                                     Key::Single(_) => String::from_utf8(key.as_bytes().to_vec())?,
@@ -373,8 +372,8 @@ mod test {
             }
 
             let mock_disk = MockDiskInterface {};
-            let state = $crate::MTimeState::new(mock_disk);
-            $crate::MTimeRebuilder::new(state)
+            let state = $crate::DiskDirtyCache::new(mock_disk);
+            $crate::CachingMTimeRebuilder::new(state)
         }};
         ($body:expr) => {
             mocked_rebuilder! {_unused, $body}

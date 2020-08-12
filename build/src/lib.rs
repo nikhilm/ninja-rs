@@ -18,31 +18,28 @@
 
 extern crate petgraph;
 
-use std::io::Write;
-use tokio::{runtime::Builder, sync::Semaphore, task::LocalSet};
-
-use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
-use thiserror::Error;
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    io::Write,
+};
 
 use petgraph::{graph::NodeIndex, visit::DfsPostOrder, Direction};
+use thiserror::Error;
+use tokio::{sync::Semaphore, task::LocalSet};
 
+mod build_task;
 pub mod disk_interface;
 mod interface;
-mod rebuilder;
-pub mod task;
-use interface::BuildTask;
-use task::{Key, Task, Tasks};
-
 #[cfg(test)]
 mod property_tests;
+mod rebuilder;
+pub mod task;
 
+use interface::BuildTask;
+use build_task::{CommandTaskError, CommandTaskResult};
 use disk_interface::SystemDiskInterface;
-pub use rebuilder::{MTimeRebuilder, MTimeState, RebuilderError};
-use task::{CommandTaskError, CommandTaskResult, TasksMap};
-
-// Needs to be public for some weird reason.
-// This genericity is getting very wonky.
-type TaskResult = CommandTaskResult;
+pub use rebuilder::{CachingMTimeRebuilder, DiskDirtyCache, RebuilderError};
+use task::{Key, Task, Tasks};
 
 type SchedulerGraph<'a> = petgraph::Graph<&'a Key, ()>;
 
@@ -83,7 +80,7 @@ impl Printer {
         if self.console.is_term() {
             // TODO: Handle non-ASCII properly.
             // TODO: ninja style elision.
-            let size = self.console.size_checked().map(|(w, h)| w).unwrap_or(80);
+            let size = self.console.size_checked().map(|(w, _h)| w).unwrap_or(80);
             self.console.clear_line().expect("clear");
             write!(
                 self.console,
@@ -300,7 +297,7 @@ impl ParallelTopoScheduler {
 
     fn schedule_internal(
         &self,
-        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
+        rebuilder: &impl interface::Rebuilder<Key, CommandTaskResult>,
         tasks: &Tasks,
         start: Option<Vec<Key>>,
     ) -> Result<(), BuildError> {
@@ -335,7 +332,7 @@ impl ParallelTopoScheduler {
         }
 
         let local_set = LocalSet::new();
-        let mut runtime = Builder::new()
+        let mut runtime = tokio::runtime::Builder::new()
             .enable_all()
             .basic_scheduler()
             .enable_all()
@@ -395,12 +392,12 @@ impl ParallelTopoScheduler {
     }
 }
 
-impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler {
+impl interface::Scheduler<Key, CommandTaskResult> for ParallelTopoScheduler {
     type Error = BuildError;
 
     fn schedule(
         &self,
-        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
+        rebuilder: &impl interface::Rebuilder<Key, CommandTaskResult>,
         tasks: &Tasks,
         start: Vec<Key>,
     ) -> Result<(), Self::Error> {
@@ -409,7 +406,7 @@ impl interface::Scheduler<Key, TaskResult> for ParallelTopoScheduler {
 
     fn schedule_externals(
         &self,
-        rebuilder: &impl interface::Rebuilder<Key, TaskResult>,
+        rebuilder: &impl interface::Rebuilder<Key, CommandTaskResult>,
         tasks: &Tasks,
     ) -> Result<(), Self::Error> {
         self.schedule_internal(rebuilder, tasks, None)
@@ -439,6 +436,6 @@ where
     Ok(scheduler.schedule(rebuilder, tasks, start)?)
 }
 
-pub fn default_mtimestate() -> MTimeState<SystemDiskInterface> {
-    MTimeState::new(SystemDiskInterface {})
+pub fn caching_mtime_rebuilder() -> CachingMTimeRebuilder<DiskDirtyCache<SystemDiskInterface>> {
+    CachingMTimeRebuilder::new(DiskDirtyCache::new(SystemDiskInterface{}))
 }

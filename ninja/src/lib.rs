@@ -18,9 +18,8 @@ use anyhow::{self, Context};
 use thiserror::Error;
 
 use ninja_build::{
-    build, build_externals, default_mtimestate,
-    task::{description_to_tasks, description_to_tasks_with_start},
-    MTimeRebuilder, ParallelTopoScheduler,
+    build, build_externals, caching_mtime_rebuilder,
+    task::{description_to_tasks, description_to_tasks_with_start}, ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
 use ninja_parse::{build_representation, Loader};
@@ -120,7 +119,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // signature. Fn(k, v, task) -> Task
     // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
     // filesystem.
-    let rebuilder: MTimeRebuilder<_> = MTimeRebuilder::new(default_mtimestate());
+    let rebuilder = caching_mtime_rebuilder();
     let scheduler = ParallelTopoScheduler::new(config.parallelism);
     {
         scoped_metric!("build");

@@ -18,7 +18,7 @@ use proptest::prelude::*;
 
 use super::{
     interface::Rebuilder,
-    rebuilder::{Dirtiness, MTimeRebuilder, MTimeStateI},
+    rebuilder::{CachingMTimeRebuilder, Dirtiness, DirtyCache},
 };
 use crate::task::{Key, Task, TaskVariant};
 use std::{cell::RefCell, collections::HashMap, time::SystemTime};
@@ -36,8 +36,8 @@ struct MapMTimeState {
     map: RefCell<HashMap<Key, Dirtiness>>,
 }
 
-impl MTimeStateI for MapMTimeState {
-    fn modified(&self, key: Key) -> std::io::Result<Dirtiness> {
+impl DirtyCache for MapMTimeState {
+    fn dirtiness(&self, key: Key) -> std::io::Result<Dirtiness> {
         if let Some(d) = self.map.borrow().get(&key) {
             Ok(*d)
         } else {
@@ -62,7 +62,7 @@ proptest! {
         mtimes.insert(Key::Single(b"foo.c".to_vec()), mtime_a);
         mtimes.insert(Key::Single(b"foo".to_vec()), mtime_b);
         let state = MapMTimeState { map: RefCell::new(mtimes) };
-        let rebuilder = MTimeRebuilder::new(state);
+        let rebuilder = CachingMTimeRebuilder::new(state);
         let maybe_task =
         rebuilder.build(Key::Single(b"foo".to_vec()), None, &Task {
             dependencies: vec![Key::Single(b"foo.c".to_vec())],
