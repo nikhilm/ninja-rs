@@ -1,21 +1,21 @@
 [package]
-name = "ninja"
+name = "ninjars"
 version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
-description = "A rust implementation of the ninja build system."
-license-file = "LICENSE"
-readme = "README.md"
+description = "A rust implementation of the ninja build system. This is the main application. This one is built on the theory in Build Systems a la Carte."
+license = "Apache-2.0"
+homepage = "https://github.com/nikhilm/ninja-rs"
 repository = "https://github.com/nikhilm/ninja-rs"
 keywords = ["ninja", "build-system", "tooling"]
-categories = ["development-tools", "build-systems"]
+categories = ["development-tools"]
 
 
 [dependencies]
-ninja-parse = { path = "../parse" }
-ninja-build = { path = "../build" }
-ninja-metrics = { path = "../metrics" }
+ninja-parse = { path = "../parse", version = "^0.1" }
+ninja-builder = { path = "../build", version = "^0.1" }
+ninja-metrics = { path = "../metrics", version = "^0.2" }
 once_cell = "^1.4"
 num_cpus = "^1.0"
 anyhow = "^1.0"

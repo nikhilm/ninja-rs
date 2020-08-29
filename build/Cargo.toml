@@ -1,12 +1,19 @@
 [package]
-name = "ninja-build"
+name = "ninja-builder"
 version = "0.1.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
 
+description = "Building logic for the ninja build system in Rust. Based on the paper Build Systems a la Carte."
+license = "Apache-2.0"
+homepage = "https://github.com/nikhilm/ninja-rs"
+repository = "https://github.com/nikhilm/ninja-rs"
+keywords = ["ninja", "build-system", "tooling"]
+categories = ["development-tools"]
+
 [dependencies]
-ninja-parse = { path = "../parse" }
-ninja-metrics = { path = "../metrics" }
+ninja-parse = { path = "../parse", version = "^0.1" }
+ninja-metrics = { path = "../metrics", version = "^0.2" }
 petgraph = "^0.5"
 thiserror = "^1.0"
 anyhow = "^1.0"

@@ -1,8 +1,15 @@
 [package]
 name = "ninja-metrics"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Nikhil Marathe <nsm.nikhil@gmail.com>"]
 edition = "2018"
+
+description = "A simple RAII based metrics gathering crate created for ninja-rs but usable independently."
+license = "Apache-2.0"
+homepage = "https://github.com/nikhilm/ninja-rs"
+repository = "https://github.com/nikhilm/ninja-rs"
+keywords = ["ninja", "build-system", "tooling"]
+categories = ["development-tools"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

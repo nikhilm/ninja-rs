@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use ninja::{run, Config, DebugMode};
+use ninjars::{run, Config, DebugMode};
 
 fn read_debug_modes(args: &mut pico_args::Arguments) -> anyhow::Result<Vec<DebugMode>> {
     let mut debug_modes: Vec<DebugMode> = Vec::new();

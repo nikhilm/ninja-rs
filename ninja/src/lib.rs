@@ -17,7 +17,7 @@
 use anyhow::{self, Context};
 use thiserror::Error;
 
-use ninja_build::{
+use ninja_builder::{
     build, build_externals, caching_mtime_rebuilder,
     task::{description_to_tasks, description_to_tasks_with_start, Key},
     ParallelTopoScheduler,
