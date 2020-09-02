@@ -245,6 +245,12 @@ impl ParallelTopoScheduler {
         ParallelTopoScheduler { parallelism }
     }
 
+    // We may be able to write a property test for this that goes roughly like:
+    // 1. Generate a tasks map with dependencies.
+    // 2. Generate a start set that is a subset of the map.
+    // 3. Build the graph.
+    // 4. The invariant is every task reachable from start must be in the graph (so wouldn't we
+    //    have to reimplement BFS again?) and has exactly one edge?
     fn build_graph(tasks: &Tasks, start: Option<Vec<Key>>) -> SchedulerGraph {
         let mut keys_to_nodes: HashMap<&Key, NodeIndex> = HashMap::new();
         let mut graph = SchedulerGraph::new();

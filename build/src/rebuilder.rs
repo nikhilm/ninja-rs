@@ -335,7 +335,25 @@ where
 
         self.mtime_state.mark_dirty(key.clone(), dirty);
 
-        if dirty && task.is_command() {
+        if task.is_regenerating() {
+            if dirty && recursion_depth {
+                // Return a task that
+                // 1. runs the command task to regen build.ninja
+                // 2. if build.ninja changed, re-parses to get a new tasks.
+                // 3. no-reparses and reschedules.
+            } else {
+                // no-reparses and reschedules.
+                // so... no-reparse and reschedules is a "task" that is handled to a scheduler with
+                // a rebuilder, that, then, sets up runs a full ninja build. this should be the
+                // default behavior
+                // if build.ninja has a task and changes, it should first run the suitable command
+                // task, respecting the recursion limit, and then start.
+                // what does it do if a key for build.ninja does not exist though?
+                // Should we insert one with no-dependencies and then it will just do the right
+                // thing?
+                // this should probably be a special rebuilder specific to just that key though.
+            }
+        } else if dirty && task.is_command() {
             // TODO: actually need some return type that can failure to run this task if the
             // dependency is not available.
             // may want different response based on dep being source vs intermediate. for
