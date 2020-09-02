@@ -88,7 +88,7 @@ impl Printer {
                 // TODO: Properly calculate instead of just removing 10 chars.
                 self.finished,
                 self.total,
-                &command[..((size as usize) - 10)]
+                &command[..std::cmp::min(command.len(), (size as usize) - 10)]
             )
             .expect("write");
         } else {
