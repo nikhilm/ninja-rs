@@ -38,8 +38,13 @@ pub trait Rebuilder<K, V> {
         key: K,
         current_value: Option<V>,
         task: &Task,
-    ) -> Result<Box<Self::Task>, Self::Error>;
+    ) -> Result<Option<Box<Self::Task>>, Self::Error>;
 }
+
+/*impl<T> BuildTask<V> for Option<T> where T: BuildTask<V> {
+    async fn run(&self) -> V {
+    }
+}*/
 
 pub trait Scheduler<K, V> {
     type Error: std::error::Error + Send + Sync + 'static;

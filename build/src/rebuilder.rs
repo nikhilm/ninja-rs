@@ -27,7 +27,7 @@ use ninja_metrics::scoped_metric;
 use thiserror::Error;
 
 use crate::{
-    build_task::{CommandTask, CommandTaskResult, NinjaTask, NoopTask},
+    build_task::{CommandTask, CommandTaskResult, NinjaTask},
     disk_interface::DiskInterface,
     interface::Rebuilder,
     task::{Key, Task},
@@ -213,7 +213,7 @@ where
         key: Key,
         _unused: Option<CommandTaskResult>,
         task: &Task,
-    ) -> Result<Box<Self::Task>, Self::Error> {
+    ) -> Result<Option<Box<Self::Task>>, Self::Error> {
         let outputs_dirty: Dirtiness = match key.clone() {
             Key::Path(_) => self.mtime_state.dirtiness(key.clone())?,
             Key::Multi(keys) => {
@@ -341,12 +341,12 @@ where
             // may want different response based on dep being source vs intermediate. for
             // intermediate, whatever should've produced it will fail and have the error message.
             // So fail with not found if not a known output.
-            Ok(Box::new(CommandTask::new(
+            Ok(Some(Box::new(CommandTask::new(
                 key,
                 task.command().unwrap().clone(),
-            )))
+            ))))
         } else {
-            Ok(Box::new(NoopTask::default()))
+            Ok(None)
         }
     }
 }
@@ -400,8 +400,8 @@ mod test {
         };
         let task = rebuilder
             .build(Key::Path(b"foo.o".to_vec().into()), None, &task)
-            .expect("valid task");
-        assert!(task.is_command());
+            .expect("valid task")
+            .expect("non-none task");
     }
 
     /// A rule where the input does not exist should fail.
@@ -564,13 +564,13 @@ mod test {
         // This would previously end up marking foo.o as Clean in the cache.
         let task = rebuilder
             .build(Key::Path(b"foo.o".to_vec().into()), None, &cc_task)
-            .expect("valid task");
-        assert!(!task.is_command(), "foo.o newer than foo.c");
+            .expect("valid task")
+            .expect_none("foo.o newer than foo.c");
 
         let task = rebuilder
             .build(Key::Path(b"foo".to_vec().into()), None, &link_task)
-            .expect("valid task");
-        assert!(task.is_command());
+            .expect("valid task")
+            .expect("non-None task");
     }
 
     #[test]

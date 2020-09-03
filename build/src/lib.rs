@@ -36,9 +36,9 @@ mod rebuilder;
 pub mod task;
 pub mod tracking_rebuilder;
 
-use interface::BuildTask;
-use build_task::{CommandTaskError, CommandTaskResult};
+use build_task::{CommandTaskError, CommandTaskResult, NinjaTask};
 use disk_interface::SystemDiskInterface;
+use interface::BuildTask;
 pub use rebuilder::{CachingMTimeRebuilder, DiskDirtyCache, RebuilderError};
 use task::{Key, Task, Tasks};
 
@@ -51,7 +51,7 @@ pub enum BuildError {
     #[error("command failed {0}")]
     CommandFailed(#[from] CommandTaskError),
     #[error(transparent)]
-    RebuilderError(#[from] anyhow::Error),
+    RebuilderError(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 #[derive(Debug)]
@@ -71,6 +71,9 @@ impl Default for Printer {
     }
 }
 
+// How this is called does need re-doing.
+// First, having NoopTask but not passing it the build task means it cannot tell whether a command
+// would actually be run or not.
 impl Printer {
     fn print_status(&mut self, task: &Task) {
         if !task.is_command() {
@@ -81,7 +84,11 @@ impl Printer {
         if self.console.is_term() {
             // TODO: Handle non-ASCII properly.
             // TODO: ninja style elision.
-            let size = self.console.size_checked().map(|(_rows, columns)| columns).unwrap_or(80);
+            let size = self
+                .console
+                .size_checked()
+                .map(|(_rows, columns)| columns)
+                .unwrap_or(80);
             self.console.clear_line().expect("clear");
             write!(
                 self.console,
@@ -103,17 +110,11 @@ impl Printer {
     }
 
     fn started(&mut self, task: &Task) {
-        if !task.is_command() {
-            return;
-        }
         self.total += 1;
         self.print_status(task);
     }
 
     fn finished(&mut self, task: &Task, result: CommandTaskResult) {
-        if !task.is_command() {
-            return;
-        }
         self.finished += 1;
         self.print_status(task);
         if let Ok(output) = result {
@@ -353,19 +354,20 @@ impl ParallelTopoScheduler {
                 if let Some(node) = build_state.next_ready() {
                     let key = graph[node];
                     if let Some(task) = tasks.task(key) {
-                        // TODO: handle error
-                        let rebuilder_result = rebuilder.build(key.clone(), None, task);
-                        if let Err(e) = rebuilder_result {
-                            // TODO: convey the real error.
-                            return Err(From::from(anyhow::Error::new(e)));
+                        if let Some(build_task) = rebuilder
+                            .build(key.clone(), None, task)
+                            .map_err(|e| BuildError::RebuilderError(Box::new(e)))?
+                        {
+                            printer.started(task);
+                            let sem = &sem;
+                            pending.push(Box::pin(async move {
+                                let _p = sem.acquire().await;
+                                futures::future::ready((node, build_task.run().await)).await
+                            }));
+                        } else {
+                            // No task, so this is a source and we are done.
+                            build_state.finish_node(&graph, node, true);
                         }
-                        let build_task = rebuilder_result.unwrap();
-                        printer.started(task);
-                        let sem = &sem;
-                        pending.push(Box::pin(async move {
-                            let _p = sem.acquire().await;
-                            futures::future::ready((node, build_task.run().await)).await
-                        }));
                     } else {
                         // No task, so this is a source and we are done.
                         build_state.finish_node(&graph, node, true);
@@ -444,5 +446,5 @@ where
 }
 
 pub fn caching_mtime_rebuilder() -> CachingMTimeRebuilder<DiskDirtyCache<SystemDiskInterface>> {
-    CachingMTimeRebuilder::new(DiskDirtyCache::new(SystemDiskInterface{}))
+    CachingMTimeRebuilder::new(DiskDirtyCache::new(SystemDiskInterface {}))
 }

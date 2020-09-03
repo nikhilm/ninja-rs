@@ -73,14 +73,16 @@ proptest! {
             (Dirtiness::Modified(a), Dirtiness::Modified(b)) => {
                 let maybe_task = maybe_task.expect("not an error");
                 if a < b {
-                    assert!(!maybe_task.is_command(), "if input is older, no rebuild expected");
+                    let _ = maybe_task.expect_none("if input is older, no rebuild expected");
                 } else {
-                    assert!(maybe_task.is_command(), "if input is newer, rebuild expected");
+                    let _ = maybe_task.expect("if input is newer, rebuild expected");
                 }
             },
-            (Dirtiness::Modified(_a), _) => { assert!(maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").is_command(), "should rebuild"); },
-            (Dirtiness::DoesNotExist, _) => { maybe_task.expect_err("missing input"); },
-            (Dirtiness::Dirty, _) => { assert!(maybe_task.expect("not an error").is_command(), "if input is dirty, need to rebuild"); },
+            (Dirtiness::Modified(_a), _) => {
+                let _ = maybe_task.expect("not a failure since if input is modified we need to consider rebuilding").expect("should rebuild");
+            },
+            (Dirtiness::DoesNotExist, _) => { let _ = maybe_task.expect_err("missing input"); },
+            (Dirtiness::Dirty, _) => { let _ = maybe_task.expect("not an error").expect("if input is dirty, need to rebuild"); },
             (Dirtiness::Clean, _) => { panic!("Should never happen"); },
         }
     }

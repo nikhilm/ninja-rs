@@ -38,10 +38,10 @@ impl Rebuilder<Key, CommandTaskResult> for TrackingRebuilder {
         key: Key,
         _unused: Option<CommandTaskResult>,
         task: &Task,
-    ) -> Result<Box<Self::Task>, Self::Error> {
+    ) -> Result<Option<Box<Self::Task>>, Self::Error> {
         let matches = key == self.key_to_track;
         let build_task = self.inner.build(key, _unused, task)?;
-        if matches && build_task.is_command() {
+        if matches && build_task.is_some() {
             self.required_rebuild.set(true);
         }
         Ok(build_task)
