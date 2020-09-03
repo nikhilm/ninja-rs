@@ -36,7 +36,7 @@ mod rebuilder;
 pub mod task;
 pub mod tracking_rebuilder;
 
-use build_task::{CommandTaskError, CommandTaskResult, NinjaTask};
+use build_task::{CommandTaskError, CommandTaskResult};
 use disk_interface::SystemDiskInterface;
 use interface::BuildTask;
 pub use rebuilder::{CachingMTimeRebuilder, DiskDirtyCache, RebuilderError};

@@ -398,7 +398,7 @@ mod test {
             order_dependencies: vec![],
             variant: TaskVariant::Command("cc -c foo.c".to_owned()),
         };
-        let task = rebuilder
+        let _task = rebuilder
             .build(Key::Path(b"foo.o".to_vec().into()), None, &task)
             .expect("valid task")
             .expect("non-none task");
@@ -562,12 +562,12 @@ mod test {
         };
 
         // This would previously end up marking foo.o as Clean in the cache.
-        let task = rebuilder
+        let _task = rebuilder
             .build(Key::Path(b"foo.o".to_vec().into()), None, &cc_task)
             .expect("valid task")
             .expect_none("foo.o newer than foo.c");
 
-        let task = rebuilder
+        let _task = rebuilder
             .build(Key::Path(b"foo".to_vec().into()), None, &link_task)
             .expect("valid task")
             .expect("non-None task");
