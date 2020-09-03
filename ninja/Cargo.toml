@@ -24,3 +24,7 @@ pico-args = "0.3"
 
 # Temporary for the model.
 petgraph = "^0.5"
+
+[[bin]]
+name = "ninja"
+path = "src/main.rs"

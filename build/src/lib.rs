@@ -29,11 +29,12 @@ use tokio::{sync::Semaphore, task::LocalSet};
 
 mod build_task;
 pub mod disk_interface;
-mod interface;
+pub mod interface;
 #[cfg(test)]
 mod property_tests;
 mod rebuilder;
 pub mod task;
+pub mod tracking_rebuilder;
 
 use interface::BuildTask;
 use build_task::{CommandTaskError, CommandTaskResult};
@@ -102,11 +103,17 @@ impl Printer {
     }
 
     fn started(&mut self, task: &Task) {
+        if !task.is_command() {
+            return;
+        }
         self.total += 1;
         self.print_status(task);
     }
 
     fn finished(&mut self, task: &Task, result: CommandTaskResult) {
+        if !task.is_command() {
+            return;
+        }
         self.finished += 1;
         self.print_status(task);
         if let Ok(output) = result {
@@ -414,7 +421,7 @@ impl interface::Scheduler<Key, CommandTaskResult> for ParallelTopoScheduler {
 }
 
 pub fn build_externals<K, V, Scheduler>(
-    scheduler: Scheduler,
+    scheduler: &Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
 ) -> Result<(), Scheduler::Error>
@@ -425,7 +432,7 @@ where
 }
 
 pub fn build<K, V, Scheduler>(
-    scheduler: Scheduler,
+    scheduler: &Scheduler,
     rebuilder: &impl interface::Rebuilder<K, V>,
     tasks: &Tasks,
     start: Vec<K>,

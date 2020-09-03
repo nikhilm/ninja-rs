@@ -21,7 +21,6 @@ pub enum CommandTaskError {
 pub type CommandTaskResult = Result<Output, CommandTaskError>;
 
 pub trait NinjaTask: BuildTask<CommandTaskResult> + std::fmt::Debug {
-    #[cfg(test)]
     fn is_command(&self) -> bool {
         false
     }

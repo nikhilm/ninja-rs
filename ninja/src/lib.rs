@@ -20,6 +20,7 @@ use thiserror::Error;
 use ninja_builder::{
     build, build_externals, caching_mtime_rebuilder,
     task::{description_to_tasks, description_to_tasks_with_start, Key},
+    tracking_rebuilder::TrackingRebuilder,
     ParallelTopoScheduler,
 };
 use ninja_metrics::scoped_metric;
@@ -86,54 +87,73 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     if metrics_enabled {
         ninja_metrics::enable();
     }
+
     let mut loader = FileLoader {};
-    let repr = build_representation(&mut loader, config.build_file.into_bytes())?;
-    // // at this point we should basically have a structure where all commands are fully expanded and
-    // // ready to go.
-    // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are
-    // specified in a different language, we do need a separate way to get the dependencies for a
-    // key.
-    // This should also deal with multiple output keys.
-    // Since each scheduler has additional execution strategies around async-ness for example, we
-    // don't spit out executable tasks, instead just having an enum.
-    let (tasks, requested) = {
-        scoped_metric!("to_tasks");
-        if config.targets.is_empty() {
-            description_to_tasks(repr)
-        } else {
-            description_to_tasks_with_start(
-                repr,
-                Some(config.targets.into_iter().map(|v| v.into_bytes()).collect()),
-            )
-        }
-    };
 
-    // BTW, one way to model cheap string/byte references by index without having to pass lifetimes
-    // and refs everywhere is to have things that need to go back tothe string/byte sequence
-    // explicitly require the intern lookup object to be passed in.
+    for _ in 1..=100 {
+        let build_key = Key::Path(config.build_file.clone().into_bytes().into());
+        let repr = build_representation(&mut loader, config.build_file.clone().into_bytes())?;
+        // // at this point we should basically have a structure where all commands are fully expanded and
+        // // ready to go.
+        // Unlike a suspending/restarting + monadic tasks combination, and also because our tasks are
+        // specified in a different language, we do need a separate way to get the dependencies for a
+        // key.
+        // This should also deal with multiple output keys.
+        // Since each scheduler has additional execution strategies around async-ness for example, we
+        // don't spit out executable tasks, instead just having an enum.
+        let (tasks, requested) = {
+            scoped_metric!("to_tasks");
+            let targets_clone = config.targets.clone();
+            if targets_clone.is_empty() {
+                description_to_tasks(repr)
+            } else {
+                description_to_tasks_with_start(
+                    repr,
+                    Some(targets_clone.into_iter().map(|v| v.into_bytes()).collect()),
+                )
+            }
+        };
 
-    // Ready to build.
-    // let _state = BuildLog::read();
-    //let mut store = DiskStore::new();
-    // TODO: This can all hide behind the build constructor right?
-    // So this could be just a function according to the paper, as long as it followed a certain
-    // signature. Fn(k, v, task) -> Task
-    // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
-    // filesystem.
-    let rebuilder = caching_mtime_rebuilder();
-    let scheduler = ParallelTopoScheduler::new(config.parallelism);
-    {
-        scoped_metric!("build");
-        if let Some(requested) = requested {
-            build(
-                scheduler,
-                &rebuilder,
-                &tasks,
-                requested.into_iter().map(Key::Path).collect(),
-            )?;
-        } else {
-            build_externals(scheduler, &rebuilder, &tasks)?;
+        let scheduler = ParallelTopoScheduler::new(config.parallelism);
+
+        if tasks.task(&build_key).is_some() {
+            let rebuilder = TrackingRebuilder::with_caching_rebuilder(build_key.clone());
+            // let build_task = rebuilder.build(build_key, None, task)?;
+            build(&scheduler, &rebuilder, &tasks, vec![build_key])?;
+            // TODO: How do we determine if it was already up to date!
+            if rebuilder.required_rebuild() {
+                // Re-parse and try again.
+                continue;
+            }
         }
+
+        // BTW, one way to model cheap string/byte references by index without having to pass lifetimes
+        // and refs everywhere is to have things that need to go back tothe string/byte sequence
+        // explicitly require the intern lookup object to be passed in.
+
+        // Ready to build.
+        // let _state = BuildLog::read();
+        //let mut store = DiskStore::new();
+        // TODO: This can all hide behind the build constructor right?
+        // So this could be just a function according to the paper, as long as it followed a certain
+        // signature. Fn(k, v, task) -> Task
+        // We may want to pass an mtime oracle here instead of making mtimerebuilder aware of the
+        // filesystem.
+        {
+            let rebuilder = caching_mtime_rebuilder();
+            scoped_metric!("build");
+            if let Some(requested) = requested {
+                build(
+                    &scheduler,
+                    &rebuilder,
+                    &tasks,
+                    requested.into_iter().map(Key::Path).collect(),
+                )?;
+            } else {
+                build_externals(&scheduler, &rebuilder, &tasks)?;
+            }
+        }
+        break;
     }
     // build log loading later
     if metrics_enabled {
