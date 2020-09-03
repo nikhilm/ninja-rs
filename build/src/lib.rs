@@ -80,7 +80,7 @@ impl Printer {
         if self.console.is_term() {
             // TODO: Handle non-ASCII properly.
             // TODO: ninja style elision.
-            let size = self.console.size_checked().map(|(w, _h)| w).unwrap_or(80);
+            let size = self.console.size_checked().map(|(_rows, columns)| columns).unwrap_or(80);
             self.console.clear_line().expect("clear");
             write!(
                 self.console,
