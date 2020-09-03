@@ -146,9 +146,12 @@ impl Printer {
 
 impl Drop for Printer {
     fn drop(&mut self) {
-        // For now, print a final newline since our status printer isn't.
         if self.console.is_term() {
-            self.console.write_line("").unwrap();
+            if self.total > 0 {
+                self.console.write_line("").unwrap();
+            } else {
+                self.console.write_line("ninja: no work to do.").unwrap();
+            }
         }
     }
 }
