@@ -79,6 +79,7 @@ impl Loader for FileLoader {
 }
 
 pub fn run(config: Config) -> anyhow::Result<()> {
+    ninja_builder::greet();
     if let Some(dir) = &config.execution_dir {
         std::env::set_current_dir(&dir).with_context(|| format!("changing to {} for -C", &dir))?;
     }

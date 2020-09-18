@@ -448,6 +448,8 @@ where
     Ok(scheduler.schedule(rebuilder, tasks, start)?)
 }
 
+pub fn greet() { println!("helldfadfogkkji"); }
+
 pub fn caching_mtime_rebuilder() -> CachingMTimeRebuilder<DiskDirtyCache<SystemDiskInterface>> {
     CachingMTimeRebuilder::new(DiskDirtyCache::new(SystemDiskInterface {}))
 }
