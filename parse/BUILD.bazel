@@ -1,0 +1,12 @@
+load("@io_bazel_rules_rust//rust:rust.bzl", "rust_library")
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "ninja-parse",
+    version = "0.1.0",
+    srcs = glob(["src/*.rs"]),
+    deps = [
+        "//metrics:ninja-metrics",
+        "//third_party:thiserror",
+    ],
+)

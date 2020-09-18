@@ -1,0 +1,49 @@
+[package]
+name = "compile_with_bazel"
+version = "0.0.0"
+
+# Keep cargo happy.
+[lib]
+path = "fake_lib.rs"
+
+[dependencies]
+anyhow = "^1.0"
+async-trait = "0.1"
+futures = "0.3"
+num_cpus = "^1.0"
+once_cell = "^1.4"
+petgraph = "^0.5"
+pico-args = "0.3"
+thiserror = "^1.0"
+
+[dependencies.tokio]
+version = "0.2"
+default-features = false
+features = ["sync", "rt-core", "process", "rt-util"]
+
+[dependencies.console]
+version = "0.11"
+default-features = false
+features = []
+
+[dev-dependencies]
+insta = "^0.16.0"
+proptest = "0.10.0"
+
+[raze]
+workspace_path = "//third_party"
+target = "x86_64-unknown-linux-gnu"
+genmode = "Remote"
+
+[raze.crates.proc-macro2.'1.0.21']
+additional_flags = [
+    "--cfg=use_proc_macro",
+]
+
+[raze.crates.proc-macro-nested.'0.1.6']
+gen_buildrs = true
+
+[raze.crates.indexmap.'1.6.0']
+additional_flags = [
+    "--cfg=has_std",
+]

@@ -4,6 +4,7 @@ members = [
     "metrics",
     "ninja",
     "parse",
+    "third_party",
 ]
 
 [profile.release]

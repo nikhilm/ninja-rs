@@ -1,0 +1,56 @@
+"""
+@generated
+cargo-raze crate build file.
+
+DO NOT EDIT! Replaced on runs of cargo-raze
+"""
+
+# buildifier: disable=load
+load(
+    "@io_bazel_rules_rust//rust:rust.bzl",
+    "rust_binary",
+    "rust_library",
+    "rust_test",
+)
+
+package(default_visibility = [
+    # Public for visibility by "@raze__crate__version//" targets.
+    #
+    # Prefer access through "//third_party", which limits external
+    # visibility to explicit Cargo.toml dependencies.
+    "//visibility:public",
+])
+
+licenses([
+    "notice",  # MIT from expression "MIT"
+])
+
+# Generated targets
+# Unsupported target "colors" with type "example" omitted
+
+# buildifier: leave-alone
+rust_library(
+    name = "console",
+    crate_type = "lib",
+    deps = [
+        "@raze__lazy_static__1_4_0//:lazy_static",
+        "@raze__libc__0_2_77//:libc",
+        "@raze__terminal_size__0_1_13//:terminal_size",
+        "@raze__termios__0_3_2//:termios",
+    ],
+    srcs = glob(["**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2018",
+    rustc_flags = [
+        "--cap-lints=allow",
+    ],
+    version = "0.11.3",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+    crate_features = [
+    ],
+)
+# Unsupported target "cursor_at" with type "example" omitted
+# Unsupported target "term" with type "example" omitted

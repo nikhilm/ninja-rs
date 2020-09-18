@@ -1,0 +1,61 @@
+"""
+@generated
+cargo-raze crate build file.
+
+DO NOT EDIT! Replaced on runs of cargo-raze
+"""
+
+# buildifier: disable=load
+load(
+    "@io_bazel_rules_rust//rust:rust.bzl",
+    "rust_binary",
+    "rust_library",
+    "rust_test",
+)
+
+package(default_visibility = [
+    # Public for visibility by "@raze__crate__version//" targets.
+    #
+    # Prefer access through "//third_party", which limits external
+    # visibility to explicit Cargo.toml dependencies.
+    "//visibility:public",
+])
+
+licenses([
+    "notice",  # Apache-2.0 from expression "Apache-2.0"
+])
+
+# Generated targets
+
+# buildifier: leave-alone
+rust_library(
+    name = "insta",
+    crate_type = "lib",
+    deps = [
+        "@raze__console__0_11_3//:console",
+        "@raze__difference__2_0_0//:difference",
+        "@raze__lazy_static__1_4_0//:lazy_static",
+        "@raze__serde__1_0_116//:serde",
+        "@raze__serde_json__1_0_57//:serde_json",
+        "@raze__serde_yaml__0_8_13//:serde_yaml",
+    ],
+    srcs = glob(["**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2018",
+    rustc_flags = [
+        "--cap-lints=allow",
+    ],
+    version = "0.16.1",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+    crate_features = [
+        "default",
+    ],
+)
+# Unsupported target "test_basic" with type "test" omitted
+# Unsupported target "test_inline" with type "test" omitted
+# Unsupported target "test_redaction" with type "test" omitted
+# Unsupported target "test_settings" with type "test" omitted
+# Unsupported target "test_suffixes" with type "test" omitted

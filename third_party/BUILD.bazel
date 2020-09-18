@@ -1,0 +1,121 @@
+"""
+@generated
+cargo-raze workspace build file.
+
+DO NOT EDIT! Replaced on runs of cargo-raze
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+licenses([
+    "notice",  # See individual crates for specific licenses
+])
+
+# Aliased targets
+alias(
+    name = "anyhow",
+    actual = "@raze__anyhow__1_0_32//:anyhow",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "async_trait",
+    actual = "@raze__async_trait__0_1_40//:async_trait",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "console",
+    actual = "@raze__console__0_11_3//:console",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "futures",
+    actual = "@raze__futures__0_3_5//:futures",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "insta",
+    actual = "@raze__insta__0_16_1//:insta",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "num_cpus",
+    actual = "@raze__num_cpus__1_13_0//:num_cpus",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "once_cell",
+    actual = "@raze__once_cell__1_4_1//:once_cell",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "petgraph",
+    actual = "@raze__petgraph__0_5_1//:petgraph",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "pico_args",
+    actual = "@raze__pico_args__0_3_4//:pico_args",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "proptest",
+    actual = "@raze__proptest__0_10_1//:proptest",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "thiserror",
+    actual = "@raze__thiserror__1_0_20//:thiserror",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)
+
+alias(
+    name = "tokio",
+    actual = "@raze__tokio__0_2_22//:tokio",
+    tags = [
+        "cargo-raze",
+        "manual",
+    ],
+)

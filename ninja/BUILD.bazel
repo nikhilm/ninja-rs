@@ -1,0 +1,27 @@
+load("@io_bazel_rules_rust//rust:rust.bzl", "rust_library", "rust_binary")
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "ninjars",
+    version = "0.1.0",
+    srcs = ["src/lib.rs"],
+    deps = [
+        "//metrics:ninja-metrics",
+        "//parse:ninja-parse",
+        "//build:ninja-builder",
+        "//third_party:once_cell",
+        "//third_party:thiserror",
+        "//third_party:anyhow",
+    ],
+)
+
+rust_binary(
+    name = "ninja",
+    srcs = ["src/main.rs"],
+    deps = [
+        ":ninjars",
+        "//third_party:num_cpus",
+        "//third_party:anyhow",
+        "//third_party:pico_args",
+    ],
+)

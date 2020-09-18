@@ -1,0 +1,21 @@
+load("@io_bazel_rules_rust//rust:rust.bzl", "rust_library")
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "ninja-builder",
+    version = "0.2.0",
+    srcs = glob(["src/**/*.rs"]),
+    deps = [
+        "//metrics:ninja-metrics",
+        "//parse:ninja-parse",
+        "//third_party:petgraph",
+        "//third_party:thiserror",
+        "//third_party:anyhow",
+        "//third_party:futures",
+        "//third_party:tokio",
+        "//third_party:console",
+    ],
+    proc_macro_deps = [
+        "//third_party:async_trait",
+    ],
+)
