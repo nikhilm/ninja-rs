@@ -60,7 +60,7 @@ go to fully support everything ninja supports.
 Make sure you have at least Rust 1.46-nightly (that is the only one I've tested with). Clone this repository, then:
 
 ```
-cargo build --release -p ninja --bin ninja
+cargo build --release -p ninjars --bin ninja
 ```
 
 This will result in a binary `./target/release/ninja` which is statically linked and can be copied wherever you need.
