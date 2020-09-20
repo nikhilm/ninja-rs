@@ -16,11 +16,8 @@ bazel_skylib_workspace()
 
 git_repository(
     name = "io_bazel_rules_rust",
-    # Need a better way to keep updating this.
     branch = "persistentworker",
-    remote = "/home/nikhil/rules_rust",
-        # Master branch as of 2020-09-16.
-        # "https://github.com/bazelbuild/rules_rust/archive/7d9e890c58ca00eacf8dd4a2ba991cfe9c3f44e4.tar.gz",
+    remote = "https://github.com/nikhilm/rules_rust",
 )
 
 load("@io_bazel_rules_rust//rust:repositories.bzl", "rust_repositories")
@@ -31,7 +28,8 @@ bazel_version(name = "bazel_version")
 
 http_file(
     name = "rustc_worker",
-    urls = ["file:///home/nikhil/rustc-worker/target/debug/rustc-worker"],
+    urls = ["https://github.com/nikhilm/rustc-worker/releases/download/v0.1.0/rustc-worker-linux"],
+    sha256 = "0e2be6198d556e4972c52ee4bcd76be2c2d8fd74c58e0bf9be195c798e2a9a4e",
     executable = True,
 )
 
