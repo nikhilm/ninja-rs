@@ -33,7 +33,7 @@ rust_library(
     crate_type = "lib",
     deps = [
         "@raze__arc_swap__0_4_7//:arc_swap",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/lib.rs",

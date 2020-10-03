@@ -33,7 +33,7 @@ rust_library(
     name = "quote",
     crate_type = "lib",
     deps = [
-        "@raze__proc_macro2__1_0_21//:proc_macro2",
+        "@raze__proc_macro2__1_0_24//:proc_macro2",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/lib.rs",

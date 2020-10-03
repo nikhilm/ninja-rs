@@ -36,7 +36,7 @@ rust_library(
         "@raze__difference__2_0_0//:difference",
         "@raze__lazy_static__1_4_0//:lazy_static",
         "@raze__serde__1_0_116//:serde",
-        "@raze__serde_json__1_0_57//:serde_json",
+        "@raze__serde_json__1_0_58//:serde_json",
         "@raze__serde_yaml__0_8_13//:serde_yaml",
     ],
     srcs = glob(["**/*.rs"]),

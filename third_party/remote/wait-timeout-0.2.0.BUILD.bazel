@@ -35,7 +35,7 @@ rust_binary(
     deps = [
         # Binaries get an implicit dependency on their crate's lib
         ":wait_timeout",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/bin/exit.rs",
@@ -60,7 +60,7 @@ rust_binary(
     deps = [
         # Binaries get an implicit dependency on their crate's lib
         ":wait_timeout",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/bin/reader.rs",
@@ -85,7 +85,7 @@ rust_binary(
     deps = [
         # Binaries get an implicit dependency on their crate's lib
         ":wait_timeout",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/bin/sleep.rs",
@@ -108,7 +108,7 @@ rust_library(
     name = "wait_timeout",
     crate_type = "lib",
     deps = [
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/lib.rs",

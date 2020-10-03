@@ -32,7 +32,7 @@ rust_library(
     name = "termios",
     crate_type = "lib",
     deps = [
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/lib.rs",

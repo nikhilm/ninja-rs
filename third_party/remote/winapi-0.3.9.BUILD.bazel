@@ -55,6 +55,7 @@ rust_library(
         "minwindef",
         "namedpipeapi",
         "ntdef",
+        "ntstatus",
         "processenv",
         "std",
         "synchapi",

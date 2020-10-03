@@ -37,7 +37,7 @@ rust_library(
     crate_type = "lib",
     deps = [
         "@raze__getrandom__0_1_15//:getrandom",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
         "@raze__rand_chacha__0_2_2//:rand_chacha",
         "@raze__rand_core__0_5_1//:rand_core",
     ],

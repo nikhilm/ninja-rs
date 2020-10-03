@@ -33,7 +33,7 @@ rust_library(
     crate_type = "lib",
     deps = [
         "@raze__iovec__0_1_4//:iovec",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
         "@raze__mio__0_6_22//:mio",
     ],
     srcs = glob(["**/*.rs"]),

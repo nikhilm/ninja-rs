@@ -36,7 +36,7 @@ rust_library(
     name = "indexmap",
     crate_type = "lib",
     deps = [
-        "@raze__hashbrown__0_9_0//:hashbrown",
+        "@raze__hashbrown__0_9_1//:hashbrown",
     ],
     srcs = glob(["**/*.rs"]),
     crate_root = "src/lib.rs",

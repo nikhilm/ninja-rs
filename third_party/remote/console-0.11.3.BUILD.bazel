@@ -34,7 +34,7 @@ rust_library(
     crate_type = "lib",
     deps = [
         "@raze__lazy_static__1_4_0//:lazy_static",
-        "@raze__libc__0_2_77//:libc",
+        "@raze__libc__0_2_78//:libc",
         "@raze__terminal_size__0_1_13//:terminal_size",
         "@raze__termios__0_3_2//:termios",
     ],

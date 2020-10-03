@@ -16,6 +16,23 @@ petgraph = "^0.5"
 pico-args = "0.3"
 thiserror = "^1.0"
 
+# Required for using the Rust persistent worker.
+# Newer version of protobuf have been released, but the 0.6.2 release of
+# grpc-rust doesn't work with 2.10 or above, and the 2.9 release pulled.
+protobuf = { version = "2.8.2", features = ["with-bytes"] }
+protobuf-codegen = "2.8.2"
+grpc = "0.6.2"
+grpc-compiler = "0.6.2"
+# Newer version of tls-api have been released, but the 0.1 release is still
+# required by grpc 0.6.2, so continue to use 0.1 of tls-api here.
+tls-api = "0.1.22"
+tls-api-stub = "0.1.22"
+# This needs to be specified, as log 0.3 depends on log 0.4, and log 0.4.7 and
+# up break log 0.3, which is needed by tokio-uds-0.1.7 (which is required by
+# httpbis 0.7.0, which hasn't had a version released in a while).  grpc
+# requires httpbis.
+log = "0.4, <0.4.7"
+
 [dependencies.tokio]
 version = "0.2"
 default-features = false
@@ -35,7 +52,7 @@ workspace_path = "//third_party"
 target = "x86_64-unknown-linux-gnu"
 genmode = "Remote"
 
-[raze.crates.proc-macro2.'1.0.21']
+[raze.crates.proc-macro2.'1.0.24']
 additional_flags = [
     "--cfg=use_proc_macro",
 ]
@@ -47,3 +64,8 @@ gen_buildrs = true
 additional_flags = [
     "--cfg=has_std",
 ]
+
+[raze.crates.protobuf.'2.8.2']
+patches = ["@io_bazel_rules_rust//proto/raze/patch:protobuf-2.8.2.patch"]
+patch_args = ["-p1"]
+
