@@ -17,7 +17,8 @@ bazel_skylib_workspace()
 git_repository(
     name = "io_bazel_rules_rust",
     branch = "persistentworker",
-    remote = "https://github.com/nikhilm/rules_rust",
+    # remote = "https://github.com/nikhilm/rules_rust",
+    remote = "/home/nikhil/rules_rust",
 )
 
 load("@io_bazel_rules_rust//rust:repositories.bzl", "rust_repositories")
@@ -25,12 +26,5 @@ rust_repositories(version="nightly", edition="2018", iso_date="2020-08-24")
 
 load("@io_bazel_rules_rust//:workspace.bzl", "bazel_version")
 bazel_version(name = "bazel_version")
-
-http_file(
-    name = "rustc_worker",
-    urls = ["https://github.com/nikhilm/rustc-worker/releases/download/v0.1.0/rustc-worker-linux"],
-    sha256 = "0e2be6198d556e4972c52ee4bcd76be2c2d8fd74c58e0bf9be195c798e2a9a4e",
-    executable = True,
-)
 
 raze_fetch_remote_crates()
