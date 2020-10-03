@@ -9,7 +9,7 @@ DO NOT EDIT! Replaced on runs of cargo-raze
 load(
     "@io_bazel_rules_rust//rust:rust.bzl",
     "rust_binary",
-    "rust_library",
+    "rust_no_worker_library",
     "rust_test",
 )
 
@@ -28,7 +28,7 @@ licenses([
 # Generated targets
 
 # buildifier: leave-alone
-rust_library(
+rust_no_worker_library(
     name = "iovec",
     crate_type = "lib",
     deps = [

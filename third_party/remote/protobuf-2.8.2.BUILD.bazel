@@ -9,7 +9,7 @@ DO NOT EDIT! Replaced on runs of cargo-raze
 load(
     "@io_bazel_rules_rust//rust:rust.bzl",
     "rust_binary",
-    "rust_library",
+    "rust_no_worker_library",
     "rust_test",
 )
 
@@ -31,7 +31,7 @@ licenses([
 # Unsupported target "coded_output_stream" with type "bench" omitted
 
 # buildifier: leave-alone
-rust_library(
+rust_no_worker_library(
     name = "protobuf",
     crate_type = "lib",
     deps = [

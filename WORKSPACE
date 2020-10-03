@@ -17,14 +17,17 @@ bazel_skylib_workspace()
 git_repository(
     name = "io_bazel_rules_rust",
     branch = "persistentworker",
-    # remote = "https://github.com/nikhilm/rules_rust",
-    remote = "/home/nikhil/rules_rust",
+    remote = "https://github.com/nikhilm/rules_rust",
 )
 
 load("@io_bazel_rules_rust//rust:repositories.bzl", "rust_repositories")
+# load("@io_bazel_rules_rust//proto:repositories.bzl", "rust_proto_repositories")
 rust_repositories(version="nightly", edition="2018", iso_date="2020-08-24")
+# rust_proto_repositories()
 
 load("@io_bazel_rules_rust//:workspace.bzl", "bazel_version")
 bazel_version(name = "bazel_version")
 
 raze_fetch_remote_crates()
+
+register_toolchains(":proto-toolchain")
