@@ -16,11 +16,8 @@ bazel_skylib_workspace()
 
 git_repository(
     name = "io_bazel_rules_rust",
-    # Need a better way to keep updating this.
     branch = "persistentworker",
-    remote = "/home/nikhil/rules_rust",
-        # Master branch as of 2020-09-16.
-        # "https://github.com/bazelbuild/rules_rust/archive/7d9e890c58ca00eacf8dd4a2ba991cfe9c3f44e4.tar.gz",
+    remote = "https://github.com/nikhilm/rules_rust",
 )
 
 load("@io_bazel_rules_rust//rust:repositories.bzl", "rust_repositories")
@@ -28,11 +25,5 @@ rust_repositories(version="nightly", edition="2018", iso_date="2020-08-24")
 
 load("@io_bazel_rules_rust//:workspace.bzl", "bazel_version")
 bazel_version(name = "bazel_version")
-
-http_file(
-    name = "rustc_worker",
-    urls = ["file:///home/nikhil/rustc-worker/target/debug/rustc-worker"],
-    executable = True,
-)
 
 raze_fetch_remote_crates()
